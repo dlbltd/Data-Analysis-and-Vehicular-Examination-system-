@@ -6,11 +6,33 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>DLB Investigations — Telematics Player</title>
 <link rel="icon" href="assets/favicon.svg" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
-<script src="https://unpkg.com/xlsx@0.20.0/dist/xlsx.full.min.js"></script>
-<script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+<!-- Fallback loader must be defined before the tags below -->
+<script>
+  function _cdnFallback(which){
+    const alt = {
+      leaflet: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+      papaparse: "https://unpkg.com/papaparse@5.4.1/papaparse.min.js",
+      xlsx: "https://unpkg.com/xlsx@0.20.0/dist/xlsx.full.min.js",
+      turf: "https://unpkg.com/@turf/turf@6.5.0/turf.min.js",
+      leafletCss: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    };
+    var s = document.createElement(/Css$/.test(which) ? "link" : "script");
+    if (/Css$/.test(which)) { s.rel="stylesheet"; s.href=alt[which]; }
+    else { s.defer=true; s.src=alt[which]; }
+    document.head.appendChild(s);
+  }
+</script>
+<!-- Use jsDelivr first, fall back to unpkg on error -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
+      onerror="_cdnFallback('leafletCss')">
+<script defer src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
+        onerror="_cdnFallback('leaflet')"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"
+        onerror="_cdnFallback('papaparse')"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.20.0/dist/xlsx.full.min.js"
+        onerror="_cdnFallback('xlsx')"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"
+        onerror="_cdnFallback('turf')"></script>
 <style>
 :root{--bg:#0b0f16;--card:#121826;--muted:#9aa4b2;--text:#e6e9ef;--accent:#00d1b2;--accent2:#0ea5e9;--ok:#22c55e;--bad:#ef4444;--warn:#eab308;--vio:#a78bfa}
 *{box-sizing:border-box}
@@ -121,8 +143,16 @@ function initMap(){
   mover=L.circleMarker([51.5,-0.12],{radius:8,weight:2,color:'#fff',fillOpacity:1}).addTo(map);
   map.setView([51.5,-0.12],12);
 }
-initMap();
-
+<script>
+  // …this is inside your main script; replace the plain initMap() call:
+  try {
+    if (window.L) { initMap(); }
+    else { window.addEventListener('load', () => window.L ? initMap() : alert('Map library blocked by network.')); }
+  } catch (e) {
+    console.error('Map init failed', e);
+    alert('Map failed to load (possibly blocked). Try reloading or another network.');
+  }
+</script>
 /* ---------- parsing + normalization ---------- */
 function buildHeaderMap(headers){const map={},lower=headers.map(h=>String(h||'').trim().toLowerCase());for(const [canon,aliases] of Object.entries(HEADER_ALIASES)){for(let i=0;i<lower.length;i++){if(aliases.includes(lower[i])){map[canon]=headers[i];break;}}}return map;}
 
