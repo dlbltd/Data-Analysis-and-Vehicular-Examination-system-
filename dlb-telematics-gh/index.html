@@ -71,15 +71,36 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
 .drop h2{margin:0 0 6px;font-size:18px}
 .hint{color:var(--muted);font-size:12px}
 
+/* Events panel */
+.panel{
+  position:fixed;right:10px;top:58px;bottom:58px;width:360px;z-index:11000;
+  background:var(--card);border:1px solid #2b3246;border-radius:12px;display:none;
+  box-shadow:0 8px 30px rgba(0,0,0,.35);overflow:hidden
+}
+.panel header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:1px solid #2b3246}
+.panel .filters{display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;border-bottom:1px solid #2b3246}
+.panel .filters label{display:flex;gap:6px;align-items:center;background:#151b29;border:1px solid #2b3246;border-radius:999px;padding:5px 9px;color:var(--muted);font-size:12px;cursor:pointer}
+.panel .list{position:absolute;inset:120px 0 0 0;overflow:auto}
+.row{display:flex;gap:8px;padding:8px 12px;border-bottom:1px solid #1c2333;cursor:pointer}
+.row:hover{background:#0f1420}
+.row .pill{min-width:86px;text-align:center;border-radius:999px;padding:2px 6px;font-size:12px;border:1px solid #2b3246}
+.pill.crash{color:#fff;background:color-mix(in oklab, var(--crash) 20%, transparent);border-color:var(--crash);font-weight:700}
+.pill.brake{color:var(--bad)}
+.pill.accel{color:var(--ok)}
+.pill.corner{color:var(--vio)}
+.pill.enter{color:#38bdf8}
+.pill.exit{color:#f59e0b}
+.row .meta{color:var(--muted);font-size:12px}
+.btn{background:#1b2232;border:1px solid #2b3246;color:var(--text);padding:8px 10px;border-radius:10px;cursor:pointer}
+.btn.primary{background:var(--accent);color:#021314;border-color:transparent;font-weight:600}
+.btn.ghost{background:transparent}
+.btn.small{padding:6px 8px;font-size:12px}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.3px;margin-right:auto}
 .brand img{height:22px;width:auto;display:block}
 .badge{background:rgba(0,209,178,.15);border:1px solid rgba(0,209,178,.5);color:var(--text);
   padding:4px 8px;border-radius:999px;font-size:12px}
-
-.btn{background:#1b2232;border:1px solid #2b3246;color:var(--text);padding:8px 10px;border-radius:10px;cursor:pointer}
-.btn.primary{background:var(--accent);color:#021314;border-color:transparent;font-weight:600}
-.btn.ghost{background:transparent}
-.btn:disabled{opacity:.55;cursor:not-allowed}
 
 .slider{flex:1}
 .kv{display:flex;gap:10px;align-items:center}
@@ -89,6 +110,7 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
 .toast{position:fixed;right:10px;bottom:64px;background:#1b2232;border:1px solid #2b3246;padding:10px 12px;border-radius:10px;max-width:360px;z-index:12000;display:none}
 .small{font-size:12px;color:var(--muted)}
 .sep{width:1px;height:24px;background:#2b3246;margin:0 4px}
+.stat{color:var(--muted);font-size:12px}
 </style>
 </head>
 <body>
@@ -115,7 +137,11 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
 
     <span class="sep"></span>
 
-    <!-- Units toggle (default MPH) -->
+    <button id="btnEventsPanel" class="btn">Events</button>
+    <button id="btnExportEvents" class="btn">Export Events</button>
+
+    <span class="sep"></span>
+
     <label class="toggle" style="gap:8px">
       Units
       <select id="selUnits" class="btn">
@@ -161,6 +187,28 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
     </select>
   </div>
 
+  <!-- Events panel -->
+  <aside id="eventsPanel" class="panel" aria-hidden="true">
+    <header>
+      <div>
+        <strong>Events</strong>
+        <div class="stat" id="evStats">0 total</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button id="btnClosePanel" class="btn small">Close</button>
+      </div>
+    </header>
+    <div class="filters">
+      <label><input type="checkbox" id="fCrash" checked> Crash</label>
+      <label><input type="checkbox" id="fBrake" checked> Harsh Brake</label>
+      <label><input type="checkbox" id="fAccel" checked> Hard Accel</label>
+      <label><input type="checkbox" id="fCorner" checked> Hard Corner</label>
+      <label><input type="checkbox" id="fEnter" checked> Enter</label>
+      <label><input type="checkbox" id="fExit" checked> Exit</label>
+    </div>
+    <div id="evList" class="list" role="list"></div>
+  </aside>
+
   <div id="toast" class="toast"></div>
 </div>
 
@@ -174,9 +222,9 @@ const degNorm=a=>((a%360)+360)%360;
 const degDelta=(a,b)=>{let d=degNorm(b)-degNorm(a); if(d>180)d-=360; if(d<-180)d+=360; return d;};
 const HEADER_ALIASES={timestamp:['timestamp','time','date','datetime','ts','recorded_at'],lat:['lat','latitude','y'],lon:['lon','lng','long','longitude','x'],speed:['speed','speed_kmh','kph','kmh','km/h','mph','speed_mph'],event:['event','evt','flag','note','tag']};
 function parseTs(v){if(v==null||v==='')return NaN;if(typeof v==='number'){if(v>59&&v<60000){const e=new Date(Date.UTC(1899,11,30)).getTime();return e+Math.round(v*86400000);} if(v>1e9&&v<1e12)return v*1000; if(v>=1e12)return v;} const s=String(v).trim(); if(!s)return NaN; if(/^\d{10}$/.test(s))return Number(s)*1000; if(/^\d{13}$/.test(s))return Number(s); const t=Date.parse(s); return isNaN(t)?NaN:t;}
-const R=6371, toRad=d=>d*Math.PI/180, toDeg=r=>r*180/Math.PI;
+const R=6371, toRad=d=>d*Math.PI/180;
 const kmBetween=(a,b)=>{const dLat=toRad(b.lat-a.lat), dLon=toRad(b.lon-a.lon); const la1=toRad(a.lat), la2=toRad(b.lat); const x=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2; return 2*R*Math.asin(Math.min(1,Math.sqrt(x)));};
-const bearing=(a,b)=>{const lat1=toRad(a.lat), lat2=toRad(b.lat), dLon=toRad(b.lon-a.lon); const y=Math.sin(dLon)*Math.cos(lat2); const x=Math.cos(lat1)*Math.cos(lat2)*Math.cos(dLon)-Math.sin(lat1)*Math.sin(lat2); return degNorm(toDeg(Math.atan2(y,x)));};
+const bearing=(a,b)=>{const lat1=toRad(a.lat), lat2=toRad(b.lat), dLon=toRad(b.lon-a.lon); const y=Math.sin(dLon)*Math.cos(lat2); const x=Math.cos(lat1)*Math.cos(lat2)*Math.cos(dLon)-Math.sin(lat1)*Math.sin(lat2); return ((Math.atan2(y,x))*180/Math.PI+360)%360;};
 const MPH_PER_KPH = 0.621371;
 
 /* Units (display only; physics in SI) */
@@ -189,6 +237,7 @@ let map, routeLayer, eventLayer, mover, trail;
 let drawnItems, fenceDrawHandler, fenceEditHandler, fenceDeleteHandler;
 let dataset=null, geofences={type:"FeatureCollection",features:[]}, maxSpeedKph=0;
 let play=false, rate=1, playMs=0, lastTs=0;
+let eventsIndex=[]; // flattened events list for panel/export
 
 function initMap(){
   map=L.map('map',{zoomControl:true,preferCanvas:true});
@@ -212,17 +261,17 @@ function initMap(){
     const name=prompt('Name this geofence:', 'Fence '+(geofences.features.length+1))||('Fence '+(geofences.features.length+1));
     gj.properties={...(gj.properties||{}), name};
     geofences.features.push(gj);
-    persistFences(); drawEvents(); toast('Fence added: '+name);
+    persistFences(); drawEvents(); buildEventIndex(); toast('Fence added: '+name);
   });
   map.on(L.Draw.Event.EDITED, ()=>{
     geofences.features = [];
     drawnItems.eachLayer(l=>{ const gj=l.toGeoJSON(); gj.properties=gj.properties||{}; if(!gj.properties.name) gj.properties.name='Fence'; geofences.features.push(gj); });
-    persistFences(); drawEvents(); toast('Fences updated.');
+    persistFences(); drawEvents(); buildEventIndex(); toast('Fences updated.');
   });
   map.on(L.Draw.Event.DELETED, ()=>{
     geofences.features = [];
     drawnItems.eachLayer(l=>{ const gj=l.toGeoJSON(); gj.properties=gj.properties||{}; if(!gj.properties.name) gj.properties.name='Fence'; geofences.features.push(gj); });
-    persistFences(); drawEvents(); toast('Fences deleted/updated.');
+    persistFences(); drawEvents(); buildEventIndex(); toast('Fences deleted/updated.');
   });
 }
 try { if (window.L) { initMap(); } else { window.addEventListener('load',()=>window.L&&initMap()); } }
@@ -329,14 +378,16 @@ function drawEvents(){
     }
     if(!q('#chkEvents').checked) continue;
     for(const ev of evs){
-      if(ev==='crash') continue;
-      let col='#9ca3af', label=ev;
-      if(ev==='accel_hard'){ col='var(--ok)'; label='Hard Accel'; }
-      if(ev==='brake_harsh'){ col='var(--bad)'; label='Harsh Brake'; }
-      if(ev==='corner_hard'){ col='var(--vio)'; label='Hard Corner'; }
-      if(/^enter:/.test(ev)){ col='#38bdf8'; label=ev; }
-      if(/^exit:/.test(ev)){ col='#f59e0b'; label=ev; }
-      L.circleMarker(ll,{radius:6,color:col,weight:2,fillOpacity:.9}).bindTooltip(new Date(p.t).toLocaleString()+' — '+label).addTo(eventLayer);
+      if(ev==='crash') continue; // already drawn
+      let col='#9ca3af', label=prettyLabel(ev), cls='';
+      if(ev==='accel_hard'){ col='var(--ok)'; cls='accel'; }
+      if(ev==='brake_harsh'){ col='var(--bad)'; cls='brake'; }
+      if(ev==='corner_hard'){ col='var(--vio)'; cls='corner'; }
+      if(/^enter:/.test(ev)){ col='#38bdf8'; cls='enter'; }
+      if(/^exit:/.test(ev)){ col='#f59e0b'; cls='exit'; }
+      L.circleMarker(ll,{radius:6,color:col,weight:2,fillOpacity:.9})
+        .bindTooltip(new Date(p.t).toLocaleString()+' — '+label)
+        .addTo(eventLayer);
     }
   }
 }
@@ -356,6 +407,7 @@ async function parseFile(file){
   if(ext==='xlsx'||ext==='xls'){const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; return XLSX.utils.sheet_to_json(ws,{defval:''});}
   throw new Error('Unsupported file');
 }
+function dl(name, content, type='text/csv'){const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type})); a.download=name; a.click(); URL.revokeObjectURL(a.href);}
 
 /* ------------ dataset apply ------------ */
 function applyDataset(ds){
@@ -364,6 +416,7 @@ function applyDataset(ds){
   detectFenceEvents(ds);
   drawRoute(ds);
   updateStats(ds);
+  buildEventIndex();
   q('#btnPlay').disabled=false; q('#btnPause').disabled=false; q('#scrub').disabled=false;
   q('#centerBox').style.display='none'; q('#tCur').style.display='inline-block';
   q('#scrub').value=0; playMs=ds.t0; lastTs=0;
@@ -377,6 +430,101 @@ function updateStats(ds){
   q('#statDist').textContent=`${ds.totalKm.toFixed(2)} km`;
   q('#statDur').textContent=fmtHMS(dur);
   q('#statSpeed').textContent=`${avgDisp}/${maxDisp} ${displaySuffix()}`;
+}
+
+/* ------------ events index + panel ------------ */
+function prettyLabel(ev){
+  if(ev==='crash') return 'CRASH';
+  if(ev==='accel_hard') return 'Hard Accel';
+  if(ev==='brake_harsh') return 'Harsh Brake';
+  if(ev==='corner_hard') return 'Hard Corner';
+  if(/^enter:/.test(ev)) return ev.replace(/^enter:/,'Enter: ');
+  if(/^exit:/.test(ev)) return ev.replace(/^exit:/,'Exit: ');
+  return ev;
+}
+function typeOf(ev){
+  if(ev==='crash') return 'crash';
+  if(ev==='accel_hard') return 'accel';
+  if(ev==='brake_harsh') return 'brake';
+  if(ev==='corner_hard') return 'corner';
+  if(/^enter:/.test(ev)) return 'enter';
+  if(/^exit:/.test(ev)) return 'exit';
+  return 'other';
+}
+function buildEventIndex(){
+  eventsIndex=[];
+  if(!dataset||!dataset.points) { renderEventList(); return; }
+  dataset.points.forEach((p, i)=>{
+    (p.events||[]).forEach(ev=>{
+      eventsIndex.push({
+        idx:i,
+        t:p.t,
+        iso:new Date(p.t).toISOString(),
+        lat:p.lat, lon:p.lon,
+        speedKph:p.speedKph||0,
+        acc: isFinite(p.acc)? p.acc : 0,
+        type:typeOf(ev),
+        label:prettyLabel(ev),
+        raw:ev
+      });
+    });
+  });
+  eventsIndex.sort((a,b)=>a.t-b.t);
+  renderEventList();
+}
+function filterFlags(){
+  return {
+    crash: q('#fCrash').checked,
+    brake: q('#fBrake').checked,
+    accel: q('#fAccel').checked,
+    corner: q('#fCorner').checked,
+    enter: q('#fEnter').checked,
+    exit:  q('#fExit').checked
+  };
+}
+function renderEventList(){
+  const list=q('#evList'); list.innerHTML='';
+  const flags=filterFlags();
+  const filtered=eventsIndex.filter(e=>flags[e.type]??true);
+  q('#evStats').textContent = `${eventsIndex.length} total · ${filtered.length} shown`;
+  for(const e of filtered){
+    const row=document.createElement('div'); row.className='row'; row.setAttribute('role','listitem');
+    const pill=document.createElement('div'); pill.className='pill '+(e.type==='crash'?'crash':e.type);
+    pill.textContent=e.label;
+    const info=document.createElement('div');
+    const spDisplay = kphToDisplay(e.speedKph).toFixed(0)+' '+displaySuffix();
+    const g = (Math.abs(e.acc)/9.80665).toFixed(2)+' g';
+    info.innerHTML = `<div>${new Date(e.t).toLocaleString()}</div>
+                      <div class="meta">${spDisplay} · ${g} · ${e.lat.toFixed(5)}, ${e.lon.toFixed(5)}</div>`;
+    row.appendChild(pill); row.appendChild(info);
+    row.onclick=()=>{ setPlaying(false); const idx=findIndex(dataset.points, e.t); playMs=e.t; renderAt(idx,e.t); map.panTo([e.lat,e.lon],{animate:false}); };
+    list.appendChild(row);
+  }
+}
+
+/* ------------ export events CSV ------------ */
+function exportEventsCSV(){
+  if(!eventsIndex.length){ toast('No events to export'); return; }
+  const header=['timestamp_iso','type','label','lat','lon','speed_kph','speed_display','acc_mps2','g_force','raw'];
+  const lines=[header.join(',')];
+  for(const e of eventsIndex){
+    const speedDisp=kphToDisplay(e.speedKph).toFixed(2);
+    const g=(e.acc/9.80665);
+    const vals=[
+      e.iso,
+      e.type,
+      e.label.replace(/,/g,';'),
+      e.lat.toFixed(6),
+      e.lon.toFixed(6),
+      (e.speedKph||0).toFixed(2),
+      speedDisp+' '+displaySuffix(),
+      (e.acc||0).toFixed(3),
+      g.toFixed(3),
+      e.raw.replace(/,/g,';')
+    ];
+    lines.push(vals.join(','));
+  }
+  dl('events.csv', lines.join('\n'), 'text/csv');
 }
 
 /* ------------ playback ------------ */
@@ -441,7 +589,7 @@ q('#fileFence').onchange=async e=>{
   try{
     const gj=JSON.parse(await f.text());
     if(gj.type!=='FeatureCollection'){ toast('Invalid GeoJSON'); e.target.value=''; return; }
-    geofences=gj; persistFences(); renderFences(); if(dataset){detectFenceEvents(dataset); drawEvents();}
+    geofences=gj; persistFences(); renderFences(); if(dataset){detectFenceEvents(dataset); buildEventIndex(); drawEvents();}
     toast(`Imported ${gj.features.length} feature(s).`);
   }catch{ toast('Failed to read GeoJSON'); }
   e.target.value='';
@@ -476,12 +624,18 @@ q('#btnAutoFence').onclick=()=>{
     hull.properties={name:`Auto ${geofences.features.length+1}`};
     geofences.features.push(hull); added++;
   });
-  if(added){ persistFences(); renderFences(); if(dataset){detectFenceEvents(dataset); drawEvents();} toast(`Auto-created ${added} fence(s).`); }
+  if(added){ persistFences(); renderFences(); if(dataset){detectFenceEvents(dataset); buildEventIndex(); drawEvents();} toast(`Auto-created ${added} fence(s).`); }
   else { toast('No clusters found.'); }
 };
 
+/* Events panel + export wiring */
+q('#btnEventsPanel').onclick=()=>{ const p=q('#eventsPanel'); p.style.display=p.style.display==='none'||!p.style.display?'block':'none'; };
+q('#btnClosePanel').onclick=()=>{ q('#eventsPanel').style.display='none'; };
+['fCrash','fBrake','fAccel','fCorner','fEnter','fExit'].forEach(id=> q('#'+id).addEventListener('change', renderEventList));
+q('#btnExportEvents').onclick=exportEventsCSV);
+
 /* Units toggle */
-q('#selUnits').onchange=(e)=>{ displayUnit=e.target.value; updateStats(dataset); drawEvents(); };
+q('#selUnits').onchange=(e)=>{ displayUnit=e.target.value; updateStats(dataset); renderEventList(); drawEvents(); };
 
 /* Playback controls */
 q('#btnPlay').onclick=()=>setPlaying(true);
