@@ -7,6 +7,7 @@
 <link rel="icon" href="assets/favicon.svg" />
 
 <script>
+  /* CDN fallback */
   function _cdnFallback(which){
     const alt = {
       leaflet: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
@@ -32,52 +33,69 @@
 
 <style>
 :root{
-  /* DLB blue/grey */
-  --bg:#0b1220;         /* deep navy */
-  --card:#0f172a;       /* blue-gray 900 */
-  --muted:#9aa4b2;      /* slate-400 */
-  --text:#e6e9ef;       /* near white */
-
-  --brand:#1fb6ff;      /* DLB blue */
-  --brand-2:#64748b;    /* blue-grey */
-  --accent:var(--brand);
-  --accent2:var(--brand-2);
-
+  /* ====== Set your exact brand hexes here ====== */
+  --brand:#1fb6ff;       /* primary blue */
+  --brand-2:#64748b;     /* secondary grey-blue */
+  --bg:#0b1220;          /* page background */
+  --card:#0f172a;        /* panels / cards */
+  --muted:#9aa4b2;       /* muted text */
+  /* ============================================ */
+  --text:#e6e9ef;
   --ok:#22c55e; --bad:#ef4444; --warn:#eab308; --vio:#a78bfa; --crash:#ff365e;
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 .app{position:relative;height:100%;isolation:isolate}
 #map{position:absolute;inset:0;z-index:0}
-.leaflet-control-container{z-index:1000 !important}
+.leaflet-control-container{z-index:900 !important}
 
 /* Top bar */
-.topbar{position:fixed;top:0;left:0;right:0;z-index:9999;display:flex;align-items:center;gap:8px;padding:10px 12px;background:linear-gradient(180deg,rgba(11,18,32,.95),rgba(11,18,32,.6),transparent);border-bottom:1px solid #1f2937}
-.brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.3px}
-.brand img{height:22px;width:auto;display:block}
-.badge{background:rgba(31,182,255,.16);border:1px solid rgba(31,182,255,.6);color:var(--text);padding:4px 8px;border-radius:999px;font-size:12px}
+.topbar{
+  position:fixed;top:0;left:0;right:0;z-index:9999;
+  display:flex;align-items:center;gap:10px;padding:10px 12px;
+  background:linear-gradient(180deg,rgba(11,18,32,.95),rgba(11,18,32,.6),transparent);
+  border-bottom:1px solid #1f2937
+}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700}
+.badge{background:color-mix(in oklab,var(--brand) 18%,transparent);border:1px solid color-mix(in oklab,var(--brand) 60%,#2b3246);padding:4px 8px;border-radius:999px;font-size:12px}
 .topbar-spacer{flex:1 1 auto}
-.topbar-right{display:flex;align-items:center;gap:8px}
-.risk-pill{display:flex;align-items:center;gap:6px;border:1px solid #2b3246;background:#172036;border-radius:999px;padding:4px 8px;font-size:12px;color:var(--muted)}
+.topbar-right{display:flex;align-items:center;gap:10px}
+.risk-pill{display:none;align-items:center;gap:6px;border:1px solid #2b3246;background:#172036;border-radius:999px;padding:4px 8px;font-size:12px;color:var(--muted)}
 .risk-dot{width:10px;height:10px;border-radius:999px;background:var(--ok)}
-
-/* Controls footer */
-.controls{position:fixed;bottom:0;left:0;right:0;z-index:9999;display:flex;align-items:center;gap:10px;padding:10px;background:linear-gradient(0deg,rgba(11,18,32,.95),rgba(11,18,32,.6),transparent)}
-.slider{flex:1}
-.kv{display:flex;gap:10px;align-items:center}
-.kv .chip{background:#151b29;border:1px solid #2b3246;border-radius:999px;padding:5px 9px;color:var(--muted);font-size:12px}
-.toggle{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:12px}
 
 /* Buttons */
 .btn{background:#172036;border:1px solid #2b3246;color:var(--text);padding:8px 10px;border-radius:10px;cursor:pointer}
-.btn.primary{background:var(--accent);color:#021314;border-color:transparent;font-weight:600}
+.btn:hover{border-color:var(--brand-2)}
+.btn.primary{background:var(--brand);color:#021314;border-color:transparent;font-weight:600}
 .btn.ghost{background:transparent}
 .btn.small{padding:6px 8px;font-size:12px}
 .btn:disabled{opacity:.55;cursor:not-allowed}
 .sep{width:1px;height:24px;background:#2b3246;margin:0 4px}
 
+/* Geofence dropdown */
+.menu{position:relative}
+.menu-btn{display:inline-flex;align-items:center;gap:6px}
+.menu-pop{
+  position:absolute;top:110%;left:0;min-width:220px;z-index:11000;
+  background:var(--card);border:1px solid #2b3246;border-radius:10px;box-shadow:0 10px 24px rgba(0,0,0,.35);padding:6px;display:none
+}
+.menu-item{display:flex;width:100%;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--text);cursor:pointer}
+.menu-item:hover{background:#121a2a;border-color:#2b3246}
+.kbd{font:11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted)}
+
+/* Controls footer */
+.controls{
+  position:fixed;bottom:0;left:0;right:0;z-index:9998;
+  display:flex;align-items:center;gap:10px;padding:10px;
+  background:linear-gradient(0deg,rgba(11,18,32,.95),rgba(11,18,32,.6),transparent)
+}
+.slider{flex:1}
+.kv{display:flex;gap:10px;align-items:center}
+.kv .chip{background:#151b29;border:1px solid #2b3246;border-radius:999px;padding:5px 9px;color:var(--muted);font-size:12px}
+.toggle{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:12px}
+
 /* Drop overlay */
-.center{position:fixed;inset:0;z-index:2000;display:grid;place-items:center;pointer-events:none}
+.center{position:fixed;inset:0;z-index:9800;display:grid;place-items:center;pointer-events:none}
 .drop{pointer-events:auto;background:var(--card);border:1px dashed #2b3246;border-radius:16px;padding:22px;text-align:center;max-width:560px;box-shadow:0 6px 30px rgba(0,0,0,.35)}
 .drop h2{margin:0 0 6px;font-size:18px}
 .hint{color:var(--muted);font-size:12px}
@@ -85,7 +103,7 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:14px/
 
 /* Panels */
 .panel{position:fixed;top:58px;bottom:58px;width:360px;z-index:11000;background:var(--card);border:1px solid #2b3246;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.35);overflow:hidden}
-#summaryPanel{left:10px;display:block}      /* default open so risk chart is visible */
+#summaryPanel{left:10px;display:block}
 #eventsPanel{right:10px;display:none}
 .panel header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:1px solid #2b3246}
 .panel .section{padding:10px 12px;border-bottom:1px solid #1c2333}
@@ -114,34 +132,34 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:14px/
 <div class="app">
   <div id="map"></div>
 
-  <div class="topbar">
+  <div class="topbar" role="navigation">
     <div class="brand" title="Investigate a Different Way">
       <span>DLB Investigations</span>
       <span class="badge">Telematics Player</span>
     </div>
 
-    <button id="btnUpload" class="btn">Upload CSV/XLSX</button>
+    <button id="btnUpload" class="btn" aria-label="Upload CSV/XLSX">Upload CSV/XLSX</button>
     <button id="btnDemo" class="btn">Demo</button>
 
-    <span class="sep"></span>
-
-    <button id="btnDraw" class="btn">Draw Fence</button>
-    <button id="btnEdit" class="btn">Edit Fences</button>
-    <button id="btnDelete" class="btn">Delete Fences</button>
-    <button id="btnAutoFence" class="btn">Auto-Fence</button>
-    <button id="btnExportFences" class="btn">Export Fences</button>
-    <button id="btnFences" class="btn ghost">Import Fences</button>
-
-    <span class="sep"></span>
+    <div class="menu" id="fenceMenu">
+      <button id="btnFenceMenu" class="btn menu-btn" aria-haspopup="true" aria-expanded="false">Geofences ▾</button>
+      <div id="menuPop" class="menu-pop" role="menu" aria-labelledby="btnFenceMenu">
+        <button class="menu-item" data-action="draw"   role="menuitem">Draw fence<span class="kbd">D</span></button>
+        <button class="menu-item" data-action="edit"   role="menuitem">Edit / Save</button>
+        <button class="menu-item" data-action="delete" role="menuitem">Delete / Done</button>
+        <hr style="border:none;border-top:1px solid #1e2636;margin:6px 4px">
+        <button class="menu-item" data-action="auto"   role="menuitem">Auto-Fence (dwells)</button>
+        <button class="menu-item" data-action="import" role="menuitem">Import GeoJSON</button>
+        <button class="menu-item" data-action="export" role="menuitem">Export GeoJSON</button>
+      </div>
+    </div>
 
     <button id="btnSummaryPanel" class="btn">Summary</button>
     <button id="btnEventsPanel" class="btn">Events</button>
     <button id="btnExportEvents" class="btn">Export Events</button>
     <button id="btnExportSummary" class="btn">Export Summary</button>
 
-    <span class="sep"></span>
-
-    <label class="toggle" style="gap:8px">
+    <label class="toggle" style="gap:8px;margin-left:8px">
       Units
       <select id="selUnits" class="btn">
         <option value="mph" selected>MPH</option>
@@ -151,13 +169,11 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:14px/
 
     <div class="topbar-spacer"></div>
 
-    <!-- Risk badge (fills after data) -->
-    <div id="riskBadge" class="risk-pill" style="display:none">
+    <div id="riskBadge" class="risk-pill" aria-live="polite">
       <span class="risk-dot" id="riskDot"></span>
       <span id="riskText">Risk: --</span>
     </div>
 
-    <!-- DLB logo on the right -->
     <div class="topbar-right">
       <img src="assets/logo.svg" alt="DLB Investigations" style="height:24px;width:auto;opacity:.95" />
     </div>
@@ -174,11 +190,11 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:14px/
         <button id="btnPick" class="btn primary">Choose file</button>
         <button id="btnQuickDemo" class="btn">Use demo</button>
       </div>
-      <div class="small" style="margin-top:8px;">You can draw or import geofences at the top.</div>
+      <div class="small" style="margin-top:8px;">Optional: use the Geofences menu for zones</div>
     </div>
   </div>
 
-  <aside id="summaryPanel" class="panel" aria-hidden="false">
+  <aside id="summaryPanel" class="panel">
     <header>
       <div>
         <strong>Summary & Risk</strong>
@@ -186,9 +202,8 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:14px/
       </div>
       <button id="btnCloseSummary" class="btn small">Close</button>
     </header>
-
     <div class="section" style="text-align:center">
-      <svg class="gauge" viewBox="0 0 120 120" aria-label="Risk score">
+      <svg class="gauge" viewBox="0 0 120 120" aria-label="Risk gauge">
         <circle cx="60" cy="60" r="50" fill="none" stroke="#1f2937" stroke-width="14"></circle>
         <circle id="gArc" cx="60" cy="60" r="50" fill="none" stroke="var(--warn)" stroke-linecap="round"
                 stroke-width="14" stroke-dasharray="0 314" transform="rotate(-90 60 60)"></circle>
@@ -196,14 +211,12 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:14px/
         <text id="gBand"  x="60" y="74" class="gsub">LOW</text>
       </svg>
     </div>
-
     <div class="section">
       <div class="row"><span>Distance</span><strong id="sDist">0.00 km</strong></div>
       <div class="row"><span>Duration</span><strong id="sDur">00:00:00</strong></div>
       <div class="row"><span>Avg / Max Speed</span><strong id="sSpeed">0/0 mph</strong></div>
       <div class="row"><span>Max Accel / Decel (g)</span><strong id="sGs">0.00 / 0.00</strong></div>
     </div>
-
     <div class="section">
       <div class="row"><span>Crashes</span><strong id="cCrash">0</strong></div>
       <div class="row"><span>Harsh Brakes</span><strong id="cBrake">0</strong></div>
@@ -213,7 +226,7 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:14px/
     </div>
   </aside>
 
-  <aside id="eventsPanel" class="panel" aria-hidden="true">
+  <aside id="eventsPanel" class="panel" aria-hidden="true" style="display:none;right:10px;">
     <header>
       <div>
         <strong>Events</strong>
@@ -253,11 +266,11 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:14px/
     </select>
   </div>
 
-  <div id="toast" class="toast"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </div>
 
 <script>
-/* ---------- helpers ---------- */
+/* ===== helpers ===== */
 const q=(s)=>document.querySelector(s);
 const toast=(m,ms=2200)=>{const t=q('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',ms);};
 const fmtHMS=ms=>{if(!isFinite(ms))return'--:--:--';const s=Math.max(0,Math.floor(ms/1000));const h=String(Math.floor(s/3600)).padStart(2,'0');const m=String(Math.floor((s%3600)/60)).padStart(2,'0');const ss=String(s%60).padStart(2,'0');return h+':'+m+':'+ss};
@@ -269,17 +282,17 @@ function parseTs(v){if(v==null||v==='')return NaN;if(typeof v==='number'){if(v>5
 const R=6371,toRad=d=>d*Math.PI/180,toDeg=r=>r*180/Math.PI;
 const kmBetween=(a,b)=>{const dLat=toRad(b.lat-a.lat), dLon=toRad(b.lon-a.lon); const la1=toRad(a.lat), la2=toRad(b.lat); const x=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2; return 2*R*Math.asin(Math.min(1,Math.sqrt(x)));};
 const bearing=(a,b)=>{const lat1=toRad(a.lat), lat2=toRad(b.lat), dLon=toRad(b.lon-a.lon); const y=Math.sin(dLon)*Math.cos(lat2); const x=Math.cos(lat1)*Math.cos(lat2)*Math.cos(dLon)-Math.sin(lat1)*Math.sin(lat2); return degNorm(toDeg(Math.atan2(y,x)));};
-const MPH_PER_KPH=0.621371;
-let displayUnit='mph';
+const MPH_PER_KPH=0.621371; let displayUnit='mph';
 const kphToDisplay=(kph)=> displayUnit==='mph' ? kph*MPH_PER_KPH : kph;
 const displaySuffix=()=> displayUnit==='mph' ? 'mph' : 'km/h';
 
-/* ---------- map + state ---------- */
+/* ===== map + state ===== */
 let map, routeLayer, eventLayer, mover, trail, drawnItems, fenceDrawHandler, fenceEditHandler, fenceDeleteHandler;
 let dataset=null, geofences={type:"FeatureCollection",features:[]}, maxSpeedKph=0;
 let play=false, rate=1, playMs=0, lastTs=0;
 let eventsIndex=[]; let summaryCache=null;
 
+/* init map */
 function initMap(){
   map=L.map('map',{zoomControl:true,preferCanvas:true});
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
@@ -290,6 +303,7 @@ function initMap(){
   mover=L.circleMarker([51.5,-0.12],{radius:8,weight:2,color:'#fff',fillOpacity:1}).addTo(map);
   map.setView([51.5,-0.12],12);
 
+  /* geofence tools */
   fenceDrawHandler=new L.Draw.Polygon(map,{shapeOptions:{color:'#94a3b8',weight:2,fillOpacity:.08}});
   fenceEditHandler=new L.EditToolbar.Edit(map,{featureGroup:drawnItems});
   fenceDeleteHandler=new L.EditToolbar.Delete(map,{featureGroup:drawnItems});
@@ -310,7 +324,7 @@ function syncFencesFromLayers(){
 }
 try{ if(window.L){initMap();} else {window.addEventListener('load',()=>window.L&&initMap());} }catch(e){console.error('Map init failed',e);}
 
-/* ---------- parsing + normalization ---------- */
+/* parsing + normalization */
 function buildHeaderMap(headers){const map={},lower=headers.map(h=>String(h||'').trim().toLowerCase());for(const [canon,aliases] of Object.entries(HEADER_ALIASES)){for(let i=0;i<lower.length;i++){if(aliases.includes(lower[i])){map[canon]=headers[i];break;}}}return map;}
 function normalizeRows(rows){
   if(!rows.length) return {points:[],t0:NaN,t1:NaN,totalKm:0};
@@ -350,7 +364,7 @@ function normalizeRows(rows){
   return {points:pts,t0,t1,totalKm};
 }
 
-/* ---------- events ---------- */
+/* driving & fence events */
 function detectDrivingEvents(ds){
   const THR={accelHard:3.0, brakeHarsh:-4.5, crash:-7.5, turnRateHard:45, minCornerSpeedKph:32};
   for(const p of ds.points){p.events=(p.events||[]).filter(e=>!/^corner|accel|brake|accel_hard|brake_harsh|corner_hard|crash$/.test(e));}
@@ -358,7 +372,7 @@ function detectDrivingEvents(ds){
     const p=ds.points[i], spK=p.speedKph||0, tr=p.turnRate||0, a=p.acc??0;
     if(a>=THR.accelHard) p.events.push('accel_hard');
     if(a<=THR.brakeHarsh) p.events.push('brake_harsh');
-    if(a<=THR.crash) p.events.push('crash');
+    if(a<=THR.crash) p.events.push('crash');   /* critical */
     if(spK>=THR.minCornerSpeedKph && tr>=THR.turnRateHard) p.events.push('corner_hard');
   }
 }
@@ -378,7 +392,7 @@ function detectFenceEvents(ds){
   }
 }
 
-/* ---------- draw ---------- */
+/* draw */
 function drawRoute(ds){
   routeLayer.clearLayers(); eventLayer.clearLayers();
   const pts=ds.points; if(pts.length<2) return;
@@ -412,11 +426,11 @@ function drawEvents(){
   }
 }
 
-/* ---------- fences ---------- */
+/* fences */
 function renderFences(){drawnItems.clearLayers(); const gjl=L.geoJSON(geofences,{style:()=>({color:'#94a3b8',weight:2,fillOpacity:.08})}); gjl.eachLayer(l=>{ if(l.feature&&l.feature.properties) l.properties=l.feature.properties; drawnItems.addLayer(l); });}
 function persistFences(){try{localStorage.setItem('dlb.geofences.v1',JSON.stringify(geofences));}catch{}}
 
-/* ---------- file / export ---------- */
+/* file / export */
 async function parseFile(file){
   const ext=(file.name.split('.').pop()||'').toLowerCase();
   if(ext==='csv'){const text=await file.text(); const parsed=Papa.parse(text,{header:true,dynamicTyping:true,skipEmptyLines:true}); return parsed.data;}
@@ -425,7 +439,7 @@ async function parseFile(file){
 }
 function dl(name, content, type='text/csv'){const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type})); a.download=name; a.click(); URL.revokeObjectURL(a.href);}
 
-/* ---------- dataset apply ---------- */
+/* dataset apply */
 function applyDataset(ds){
   dataset=ds; detectDrivingEvents(ds); detectFenceEvents(ds);
   drawRoute(ds); updateStats(ds); buildEventIndex(); updateSummaryUI();
@@ -434,7 +448,7 @@ function applyDataset(ds){
   q('#scrub').value=0; playMs=ds.t0; lastTs=0;
 }
 
-/* ---------- stats ---------- */
+/* stats */
 function updateStats(ds){
   if(!ds||!ds.points||!ds.points.length){ q('#statDist').textContent='0.00 km'; q('#statDur').textContent='00:00:00'; q('#statSpeed').textContent='0/0 '+displaySuffix(); return; }
   const dur=ds.t1-ds.t0;
@@ -444,7 +458,7 @@ function updateStats(ds){
   q('#statSpeed').textContent=`${kphToDisplay(avgKph).toFixed(0)}/${kphToDisplay(maxSpeedKph).toFixed(0)} ${displaySuffix()}`;
 }
 
-/* ---------- event list ---------- */
+/* event list + export */
 function prettyLabel(ev){
   if(ev==='crash') return 'CRASH';
   if(ev==='accel_hard') return 'Hard Accel';
@@ -489,8 +503,6 @@ function renderEventList(){
     list.appendChild(row);
   }
 }
-
-/* ---------- export ---------- */
 function exportEventsCSV(){
   if(!eventsIndex.length){ toast('No events to export'); return; }
   const header=['timestamp_iso','type','label','lat','lon','speed_kph','speed_display','acc_mps2','g_force','raw'];
@@ -503,15 +515,8 @@ function exportEventsCSV(){
   }
   dl('events.csv', lines.join('\n'), 'text/csv');
 }
-function exportSummaryCSV(){
-  if(!summaryCache){ toast('Nothing to export'); return; }
-  const s=summaryCache;
-  const header=['distance_km','duration_s','avg_kph','max_kph','max_acc_mps2','max_decel_mps2','max_acc_g','max_decel_g','crash','brake_harsh','accel_hard','corner_hard','risk_score'];
-  const line=[s.distanceKm.toFixed(3), s.durationSec.toFixed(0), s.avgKph.toFixed(2), s.maxKph.toFixed(2), s.maxAcc.toFixed(3), s.maxDecel.toFixed(3), s.maxAccG.toFixed(3), s.maxDecelG.toFixed(3), s.counts.crash, s.counts.brake_harsh, s.counts.accel_hard, s.counts.corner_hard, s.risk.score.toFixed(1)];
-  dl('summary.csv', [header.join(','), line.join(',')].join('\n'), 'text/csv');
-}
 
-/* ---------- playback ---------- */
+/* playback */
 function setPlaying(p){play=p; q('#btnPlay').disabled=p; q('#btnPause').disabled=!p; if(p) requestAnimationFrame(tick);}
 function tick(ts){
   if(!play||!dataset) return;
@@ -530,12 +535,12 @@ function renderAt(idx,t){
   const lat=lerp(a.lat,b.lat,p), lon=lerp(a.lon,b.lon,p);
   mover.setLatLng([lat,lon]); mover.setStyle({color:speedToColor(lerp(a.speedKph,b.speedKph,p),maxSpeedKph)});
   if(q('#chkFollow').checked) map.panTo([lat,lon],{animate:false});
-  const upto=pts.slice(0,idx+1).map(p=>[p.lat,p.lon]); if(upto.length){upto.push([lat,lon]); trail.setStyle({color:'var(--accent)'}); trail.setLatLngs(upto);}
+  const upto=pts.slice(0,idx+1).map(p=>[p.lat,p.lon]); if(upto.length){upto.push([lat,lon]); trail.setStyle({color:'var(--brand)'}); trail.setLatLngs(upto);}
   const frac=(t-dataset.t0)/(dataset.t1-dataset.t0); q('#scrub').value=String(Math.round(frac*1000));
   q('#tCur').textContent=new Date(t).toLocaleTimeString();
 }
 
-/* ---------- demo ---------- */
+/* demo + drop */
 function demoRows(){const base=Date.now(); const list=[
   {t:base+0,lat:51.505,lon:-0.09,kph:0},{t:base+4000,lat:51.506,lon:-0.088,kph:18},
   {t:base+8000,lat:51.507,lon:-0.086,kph:30},{t:base+12000,lat:51.508,lon:-0.084,kph:42},
@@ -543,11 +548,9 @@ function demoRows(){const base=Date.now(); const list=[
   {t:base+28000,lat:51.511,lon:-0.083,kph:40},{t:base+34000,lat:51.512,lon:-0.085,kph:32},
   {t:base+40000,lat:51.513,lon:-0.087,kph:24},{t:base+46000,lat:51.514,lon:-0.089,kph:15}
 ]; return list.map(p=>({timestamp:new Date(p.t).toISOString(), lat:p.lat, lon:p.lon, speed:p.kph}));}
-
-/* ---------- drop & UI wiring ---------- */
 function enableDrop(){
   const box=document.getElementById('drop');
-  ['dragover','dragenter'].forEach(ev=>box.addEventListener(ev,e=>{e.preventDefault(); box.style.borderColor='var(--accent)'}));
+  ['dragover','dragenter'].forEach(ev=>box.addEventListener(ev,e=>{e.preventDefault(); box.style.borderColor='var(--brand)'}));
   ['dragleave','drop'].forEach(ev=>box.addEventListener(ev,()=>{box.style.borderColor='#2b3246'}));
   box.addEventListener('drop',async e=>{
     e.preventDefault(); const f=e.dataTransfer.files?.[0]; if(!f) return;
@@ -556,13 +559,81 @@ function enableDrop(){
 }
 enableDrop();
 
+/* wire: core buttons */
 q('#btnPick').addEventListener('click',()=>q('#fileData').click());
 q('#btnQuickDemo').addEventListener('click',()=>{const ds=normalizeRows(demoRows()); applyDataset(ds); setPlaying(true);});
 q('#btnUpload').addEventListener('click',()=>q('#fileData').click());
 q('#btnDemo').addEventListener('click',()=>q('#btnQuickDemo').click());
 q('#fileData').addEventListener('change',async e=>{const f=e.target.files?.[0]; if(!f) return; const rows=await parseFile(f); const ds=normalizeRows(rows); applyDataset(ds); setPlaying(true); e.target.value='';});
 
-q('#btnFences').addEventListener('click',()=>q('#fileFence').click());
+q('#btnSummaryPanel').addEventListener('click',()=>{ const p=q('#summaryPanel'); p.style.display=p.style.display==='none'||!p.style.display?'block':'none'; });
+q('#btnCloseSummary').addEventListener('click',()=>{ q('#summaryPanel').style.display='none'; });
+q('#btnEventsPanel').addEventListener('click',()=>{ const p=q('#eventsPanel'); p.style.display=p.style.display==='none'||!p.style.display?'block':'none'; });
+q('#btnClosePanel').addEventListener('click',()=>{ q('#eventsPanel').style.display='none'; });
+
+['fCrash','fBrake','fAccel','fCorner','fEnter','fExit'].forEach(id=> q('#'+id).addEventListener('change',renderEventList));
+q('#btnExportEvents').addEventListener('click',exportEventsCSV);
+
+/* units & playback */
+q('#selUnits').addEventListener('change',(e)=>{ displayUnit=e.target.value; updateStats(dataset); renderEventList(); updateSummaryUI(); drawEvents(); });
+q('#btnPlay').addEventListener('click',()=>setPlaying(true));
+q('#btnPause').addEventListener('click',()=>setPlaying(false));
+q('#selRate').addEventListener('change',e=>{rate=Number(e.target.value)||1});
+q('#chkEvents').addEventListener('change',()=>drawEvents());
+q('#scrub').addEventListener('input',e=>{ if(!dataset) return; const f=Number(e.target.value)/1000; const t=dataset.t0+f*(dataset.t1-dataset.t0); playMs=t; const idx=findIndex(dataset.points,t); renderAt(idx,t); });
+window.addEventListener('keydown',e=>{ if(e.code==='Space'){ e.preventDefault(); if(q('#btnPlay').disabled) setPlaying(false); else setPlaying(true); }});
+
+/* geofence menu logic */
+const menuBtn=q('#btnFenceMenu'), menu=q('#menuPop');
+menuBtn.addEventListener('click',()=>{
+  const open=menu.style.display==='block';
+  menu.style.display=open?'none':'block';
+  menuBtn.setAttribute('aria-expanded', String(!open));
+});
+document.addEventListener('click',(e)=>{ if(!menu.contains(e.target) && e.target!==menuBtn){ menu.style.display='none'; menuBtn.setAttribute('aria-expanded','false'); }});
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ menu.style.display='none'; menuBtn.setAttribute('aria-expanded','false'); }});
+
+/* geofence action routing */
+let editing=false, deleting=false;
+menu.addEventListener('click',(e)=>{
+  const btn=e.target.closest('.menu-item'); if(!btn) return;
+  const action=btn.dataset.action;
+  if(action==='draw'){ fenceDrawHandler.enable(); toast('Click to add vertices, double-click to finish'); }
+  if(action==='edit'){
+    if(!editing){ fenceEditHandler.enable(); btn.textContent='Save Edits'; editing=true; toast('Drag vertices then click Save Edits'); }
+    else { fenceEditHandler.disable(); btn.textContent='Edit / Save'; editing=false; }
+  }
+  if(action==='delete'){
+    if(!deleting){ fenceDeleteHandler.enable(); btn.textContent='Done Deleting'; deleting=true; toast('Click fence(s) to delete, then Done'); }
+    else { fenceDeleteHandler.disable(); btn.textContent='Delete / Done'; deleting=false; }
+  }
+  if(action==='auto'){
+    if(!dataset){ toast('Load data first'); return; }
+    const stops=extractStops(dataset.points,5,60);
+    if(!stops.length){ toast('No dwells ≥60s found.'); return; }
+    const pts=turf.featureCollection(stops.map(s=>turf.point([s.lon,s.lat])));
+    const clustered=turf.clustersDbscan(pts,0.1,{minPoints:3,units:'kilometers'});
+    const groups={}; for(const f of clustered.features){ const id=f.properties.cluster; if(id!=null){ (groups[id]??=[]).push(f); } }
+    let added=0;
+    Object.keys(groups).forEach(id=>{
+      const fc=turf.featureCollection(groups[id]);
+      let hull=turf.convex(fc);
+      if(!hull){ const center=turf.center(fc); hull=turf.buffer(center,0.05,{units:'kilometers'}); }
+      else { hull=turf.buffer(hull,0.015,{units:'kilometers'}); }
+      hull.properties={name:`Auto ${geofences.features.length+1}`};
+      geofences.features.push(hull); added++;
+    });
+    if(added){ persistFences(); renderFences(); if(dataset){detectFenceEvents(dataset); buildEventIndex(); drawEvents(); updateSummaryUI();} toast(`Auto-created ${added} fence(s).`); }
+    else { toast('No clusters found.'); }
+  }
+  if(action==='import'){ q('#fileFence').click(); }
+  if(action==='export'){
+    const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(geofences,null,2)],{type:'application/geo+json'})); a.download='geofences.geojson'; a.click(); URL.revokeObjectURL(a.href);
+  }
+  menu.style.display='none'; menuBtn.setAttribute('aria-expanded','false');
+});
+
+/* import fences file */
 q('#fileFence').addEventListener('change',async e=>{
   const f=e.target.files?.[0]; if(!f) return;
   try{
@@ -574,59 +645,8 @@ q('#fileFence').addEventListener('change',async e=>{
   }catch{ toast('Failed to read GeoJSON'); }
   e.target.value='';
 });
-q('#btnExportFences').addEventListener('click',()=>{const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(geofences,null,2)],{type:'application/geo+json'})); a.download='geofences.geojson'; a.click(); URL.revokeObjectURL(a.href);});
 
-let editing=false, deleting=false;
-q('#btnDraw').addEventListener('click',()=>{ fenceDrawHandler.enable(); toast('Click to add vertices, double-click to finish'); });
-q('#btnEdit').addEventListener('click',()=>{
-  if(!editing){ fenceEditHandler.enable(); q('#btnEdit').textContent='Save Edits'; editing=true; toast('Drag vertices then click Save Edits'); }
-  else { fenceEditHandler.disable(); q('#btnEdit').textContent='Edit Fences'; editing=false; }
-});
-q('#btnDelete').addEventListener('click',()=>{
-  if(!deleting){ fenceDeleteHandler.enable(); q('#btnDelete').textContent='Done Deleting'; deleting=true; toast('Click fence(s) to delete, then Done'); }
-  else { fenceDeleteHandler.disable(); q('#btnDelete').textContent='Delete Fences'; deleting=false; }
-});
-
-q('#btnAutoFence').addEventListener('click',()=>{
-  if(!dataset){ toast('Load data first'); return; }
-  const stops=extractStops(dataset.points,5,60);
-  if(!stops.length){ toast('No dwells ≥60s found.'); return; }
-  const pts=turf.featureCollection(stops.map(s=>turf.point([s.lon,s.lat])));
-  const clustered=turf.clustersDbscan(pts,0.1,{minPoints:3,units:'kilometers'});
-  const groups={}; for(const f of clustered.features){ const id=f.properties.cluster; if(id!=null){ (groups[id]??=[]).push(f); } }
-  let added=0;
-  Object.keys(groups).forEach(id=>{
-    const fc=turf.featureCollection(groups[id]);
-    let hull=turf.convex(fc);
-    if(!hull){ const center=turf.center(fc); hull=turf.buffer(center,0.05,{units:'kilometers'}); }
-    else { hull=turf.buffer(hull,0.015,{units:'kilometers'}); }
-    hull.properties={name:`Auto ${geofences.features.length+1}`};
-    geofences.features.push(hull); added++;
-  });
-  if(added){ persistFences(); renderFences(); if(dataset){detectFenceEvents(dataset); buildEventIndex(); drawEvents(); updateSummaryUI();} toast(`Auto-created ${added} fence(s).`); }
-  else { toast('No clusters found.'); }
-});
-
-/* Panels / exports / units */
-q('#btnEventsPanel').addEventListener('click',()=>{ const p=q('#eventsPanel'); p.style.display=p.style.display==='none'||!p.style.display?'block':'none'; });
-q('#btnClosePanel').addEventListener('click',()=>{ q('#eventsPanel').style.display='none'; });
-['fCrash','fBrake','fAccel','fCorner','fEnter','fExit'].forEach(id=> q('#'+id).addEventListener('change',renderEventList));
-q('#btnExportEvents').addEventListener('click',exportEventsCSV);
-
-q('#btnSummaryPanel').addEventListener('click',()=>{ const p=q('#summaryPanel'); p.style.display=p.style.display==='none'||!p.style.display?'block':'none'; });
-q('#btnCloseSummary').addEventListener('click',()=>{ q('#summaryPanel').style.display='none'; });
-q('#btnExportSummary').addEventListener('click',exportSummaryCSV);
-
-q('#selUnits').addEventListener('change',(e)=>{ displayUnit=e.target.value; updateStats(dataset); renderEventList(); updateSummaryUI(); drawEvents(); });
-
-q('#btnPlay').addEventListener('click',()=>setPlaying(true));
-q('#btnPause').addEventListener('click',()=>setPlaying(false));
-q('#selRate').addEventListener('change',e=>{rate=Number(e.target.value)||1});
-q('#chkEvents').addEventListener('change',()=>drawEvents());
-q('#scrub').addEventListener('input',e=>{ if(!dataset) return; const f=Number(e.target.value)/1000; const t=dataset.t0+f*(dataset.t1-dataset.t0); playMs=t; const idx=findIndex(dataset.points,t); renderAt(idx,t); });
-window.addEventListener('keydown',e=>{ if(e.code==='Space'){ e.preventDefault(); if(q('#btnPlay').disabled) setPlaying(false); else setPlaying(true); }});
-
-/* ---------- auto-fence helper ---------- */
+/* stops helper */
 function extractStops(points,maxKph=5,minSec=60){
   const out=[]; let i=0;
   while(i<points.length){
@@ -641,7 +661,7 @@ function extractStops(points,maxKph=5,minSec=60){
   return out;
 }
 
-/* ---------- summary + risk ---------- */
+/* summary + risk */
 function computeSummaryAndRisk(){
   if(!dataset||!dataset.points||dataset.points.length<2) return null;
   const pts=dataset.points;
@@ -690,6 +710,16 @@ function updateSummaryUI(){
   const rb=q('#riskBadge'); rb.style.display='flex'; q('#riskDot').style.background=s.risk.color; q('#riskText').textContent=`Risk: ${s.risk.band} (${s.risk.score.toFixed(0)})`;
   q('#riskExplain').textContent=`Rates/10km — brake:${s.rate.brake_harsh.toFixed(2)}, accel:${s.rate.accel_hard.toFixed(2)}, corner:${s.rate.corner_hard.toFixed(2)}. PeakDecel ${s.maxDecelG.toFixed(2)} g.`;
 }
+
+/* exports */
+q('#btnExportSummary').addEventListener('click',()=> {
+  if(!summaryCache){ toast('Nothing to export'); return; }
+  const s=summaryCache;
+  const header=['distance_km','duration_s','avg_kph','max_kph','max_acc_mps2','max_decel_mps2','max_acc_g','max_decel_g','crash','brake_harsh','accel_hard','corner_hard','risk_score'];
+  const line=[s.distanceKm.toFixed(3), s.durationSec.toFixed(0), s.avgKph.toFixed(2), s.maxKph.toFixed(2), s.maxAcc.toFixed(3), s.maxDecel.toFixed(3), s.maxAccG.toFixed(3), s.maxDecelG.toFixed(3), s.counts.crash, s.counts.brake_harsh, s.counts.accel_hard, s.counts.corner_hard, s.risk.score.toFixed(1)];
+  dl('summary.csv', [header.join(','), line.join(',')].join('\n'), 'text/csv');
+});
+q('#btnExportEvents').addEventListener('click',exportEventsCSV);
 </script>
 </body>
 </html>
