@@ -6,7 +6,7 @@
 <title>DLB Investigations — Telematics Player</title>
 <link rel="icon" href="assets/favicon.svg" />
 
-<!-- CDN with fallback -->
+<!-- CDN + fallback -->
 <script>
   function _cdnFallback(which){
     const alt = {
@@ -14,7 +14,9 @@
       papaparse: "https://unpkg.com/papaparse@5.4.1/papaparse.min.js",
       xlsx: "https://unpkg.com/xlsx@0.20.0/dist/xlsx.full.min.js",
       turf: "https://unpkg.com/@turf/turf@6.5.0/turf.min.js",
-      leafletCss: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      leafletCss: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
+      leafletDraw: "https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js",
+      leafletDrawCss: "https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"
     };
     var el = document.createElement(/Css$/.test(which) ? "link" : "script");
     if (/Css$/.test(which)) { el.rel="stylesheet"; el.href=alt[which]; }
@@ -24,8 +26,12 @@
 </script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
       onerror="_cdnFallback('leafletCss')">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.css"
+      onerror="_cdnFallback('leafletDrawCss')">
 <script defer src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
         onerror="_cdnFallback('leaflet')"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.js"
+        onerror="_cdnFallback('leafletDraw')"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"
         onerror="_cdnFallback('papaparse')"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.20.0/dist/xlsx.full.min.js"
@@ -36,20 +42,21 @@
 <style>
 :root{
   --bg:#0b0f16;--card:#121826;--muted:#9aa4b2;--text:#e6e9ef;
-  --accent:#00d1b2;--accent2:#0ea5e9;--ok:#22c55e;--bad:#ef4444;--warn:#eab308;--vio:#a78bfa
+  --accent:#00d1b2;--accent2:#0ea5e9;--ok:#22c55e;--bad:#ef4444;--warn:#eab308;--vio:#a78bfa;--crash:#ff365e
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
   font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 .app{position:relative;height:100%;isolation:isolate}
 
-/* Map at the bottom */
+/* Map at bottom */
 #map{position:absolute;inset:0;z-index:0}
+.leaflet-control-container{z-index:1000 !important}
 
-/* OUR UI ALWAYS ON TOP */
+/* UI pinned on top */
 .topbar,.controls{position:fixed;left:0;right:0;z-index:9999;pointer-events:auto}
 .topbar{
-  top:0;display:flex;align-items:center;gap:10px;padding:10px 12px;
+  top:0;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;
   background:linear-gradient(180deg,rgba(18,24,38,.95),rgba(18,24,38,.6),transparent);
   border-bottom:1px solid #1e2433
 }
@@ -58,14 +65,11 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
   background:linear-gradient(0deg,rgba(18,24,38,.95),rgba(18,24,38,.6),transparent)
 }
 
-/* Center overlay BELOW the toolbar/controls and never capturing clicks */
+/* Center overlay below UI */
 .center{position:fixed;inset:0;z-index:2000;display:grid;place-items:center;pointer-events:none}
 .drop{pointer-events:auto;background:var(--card);border:1px dashed #2b3246;border-radius:16px;padding:22px;text-align:center;max-width:560px;box-shadow:0 6px 30px rgba(0,0,0,.35)}
 .drop h2{margin:0 0 6px;font-size:18px}
 .hint{color:var(--muted);font-size:12px}
-
-/* Keep Leaflet controls below our UI */
-.leaflet-control-container{z-index:1000 !important}
 
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.3px;margin-right:auto}
 .brand img{height:22px;width:auto;display:block}
@@ -76,7 +80,6 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
 .btn.primary{background:var(--accent);color:#021314;border-color:transparent;font-weight:600}
 .btn.ghost{background:transparent}
 .btn:disabled{opacity:.55;cursor:not-allowed}
-
 .slider{flex:1}
 .kv{display:flex;gap:10px;align-items:center}
 .kv .chip{background:#151b29;border:1px solid #2b3246;border-radius:999px;padding:5px 9px;color:var(--muted);font-size:12px}
@@ -84,6 +87,7 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
 
 .toast{position:fixed;right:10px;bottom:64px;background:#1b2232;border:1px solid #2b3246;padding:10px 12px;border-radius:10px;max-width:360px;z-index:12000;display:none}
 .small{font-size:12px;color:var(--muted)}
+.sep{width:1px;height:24px;background:#2b3246;margin:0 4px}
 </style>
 </head>
 <body>
@@ -95,10 +99,30 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
       <img src="assets/logo.svg" alt="DLB Investigations" />
       <span>DLB Investigations</span><span class="badge">Telematics Player</span>
     </div>
+
     <button id="btnUpload" class="btn">Upload CSV/XLSX</button>
     <button id="btnDemo" class="btn">Demo</button>
-    <button id="btnFences" class="btn ghost">Geofences</button>
-    <button id="btnExport" class="btn ghost">Export</button>
+
+    <span class="sep"></span>
+
+    <button id="btnDraw" class="btn">Draw Fence</button>
+    <button id="btnEdit" class="btn">Edit Fences</button>
+    <button id="btnDelete" class="btn">Delete Fences</button>
+    <button id="btnAutoFence" class="btn">Auto-Fence</button>
+    <button id="btnExportFences" class="btn">Export Fences</button>
+    <button id="btnFences" class="btn ghost">Import Fences</button>
+
+    <span class="sep"></span>
+
+    <!-- Units toggle (default MPH) -->
+    <label class="toggle" style="gap:8px">
+      Units
+      <select id="selUnits" class="btn">
+        <option value="mph" selected>MPH</option>
+        <option value="kph">KPH</option>
+      </select>
+    </label>
+
     <input id="fileData" type="file" accept=".csv,.xlsx,.xls" hidden />
     <input id="fileFence" type="file" accept=".geojson,.json" hidden />
   </div>
@@ -111,7 +135,7 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
         <button id="btnPick" class="btn primary">Choose file</button>
         <button id="btnQuickDemo" class="btn">Use demo</button>
       </div>
-      <div class="small" style="margin-top:8px;">Optional: load geofences (GeoJSON) via top bar</div>
+      <div class="small" style="margin-top:8px;">Optional: draw/import geofences above</div>
     </div>
   </div>
 
@@ -123,7 +147,7 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
     <div class="kv">
       <span class="chip" id="statDist">0.00 km</span>
       <span class="chip" id="statDur">00:00:00</span>
-      <span class="chip" id="statSpeed">0/0 km/h</span>
+      <span class="chip" id="statSpeed">0/0 mph</span>
     </div>
     <label class="toggle"><input id="chkFollow" type="checkbox" checked /> Follow</label>
     <label class="toggle"><input id="chkEvents" type="checkbox" checked /> Events</label>
@@ -152,28 +176,64 @@ function parseTs(v){if(v==null||v==='')return NaN;if(typeof v==='number'){if(v>5
 const R=6371, toRad=d=>d*Math.PI/180, toDeg=r=>r*180/Math.PI;
 const kmBetween=(a,b)=>{const dLat=toRad(b.lat-a.lat), dLon=toRad(b.lon-a.lon); const la1=toRad(a.lat), la2=toRad(b.lat); const x=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2; return 2*R*Math.asin(Math.min(1,Math.sqrt(x)));};
 const bearing=(a,b)=>{const lat1=toRad(a.lat), lat2=toRad(b.lat), dLon=toRad(b.lon-a.lon); const y=Math.sin(dLon)*Math.cos(lat2); const x=Math.cos(lat1)*Math.cos(lat2)*Math.cos(dLon)-Math.sin(lat1)*Math.sin(lat2); return degNorm(toDeg(Math.atan2(y,x)));};
+const MPH_PER_KPH = 0.621371;
+
+/* ---------- units (display) ---------- */
+let displayUnit='mph';  // default MPH
+const kphToDisplay = (kph)=> displayUnit==='mph' ? kph*MPH_PER_KPH : kph;
+const displaySuffix = ()=> displayUnit==='mph' ? 'mph' : 'km/h';
 
 /* ---------- map + state ---------- */
-let map, routeLayer, eventLayer, fenceLayer, mover, trail;
-let dataset=null, geofences=null, maxSpeed=0;
-let play=false, rate=1, playMs=0, lastTs=0;  // single state
+let map, routeLayer, eventLayer, mover, trail;
+let drawnItems, fenceDrawHandler, fenceEditHandler, fenceDeleteHandler;
+let dataset=null, geofences={type:"FeatureCollection",features:[]}, maxSpeedKph=0;
+let play=false, rate=1, playMs=0, lastTs=0;
 
 function initMap(){
   map=L.map('map',{zoomControl:true,preferCanvas:true});
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
   routeLayer=L.layerGroup().addTo(map);
   eventLayer=L.layerGroup().addTo(map);
-  fenceLayer=L.layerGroup().addTo(map);
+  drawnItems=new L.FeatureGroup().addTo(map);
   trail=L.polyline([], {weight:5,opacity:.9}).addTo(map);
   mover=L.circleMarker([51.5,-0.12],{radius:8,weight:2,color:'#fff',fillOpacity:1}).addTo(map);
   map.setView([51.5,-0.12],12);
+
+  // draw/edit handlers (we drive with our own buttons)
+  fenceDrawHandler=new L.Draw.Polygon(map,{shapeOptions:{color:'#94a3b8',weight:2,fillOpacity:.08}});
+  fenceEditHandler=new L.EditToolbar.Edit(map,{featureGroup:drawnItems});
+  fenceDeleteHandler=new L.EditToolbar.Delete(map,{featureGroup:drawnItems});
+
+  // restore fences from localStorage
+  try{
+    const saved=localStorage.getItem('dlb.geofences.v1');
+    if(saved){ geofences=JSON.parse(saved); renderFences(); }
+  }catch{}
+
+  map.on(L.Draw.Event.CREATED, e=>{
+    const layer=e.layer;
+    drawnItems.addLayer(layer);
+    const gj=layer.toGeoJSON();
+    const name=prompt('Name this geofence:', 'Fence '+(geofences.features.length+1))||('Fence '+(geofences.features.length+1));
+    gj.properties={...(gj.properties||{}), name};
+    geofences.features.push(gj);
+    persistFences(); drawEvents(); toast('Fence added: '+name);
+  });
+  map.on(L.Draw.Event.EDITED, ()=>{
+    geofences.features = [];
+    drawnItems.eachLayer(l=>{ const gj=l.toGeoJSON(); gj.properties=gj.properties||{}; if(!gj.properties.name) gj.properties.name='Fence'; geofences.features.push(gj); });
+    persistFences(); drawEvents(); toast('Fences updated.');
+  });
+  map.on(L.Draw.Event.DELETED, ()=>{
+    geofences.features = [];
+    drawnItems.eachLayer(l=>{ const gj=l.toGeoJSON(); gj.properties=gj.properties||{}; if(!gj.properties.name) gj.properties.name='Fence'; geofences.features.push(gj); });
+    persistFences(); drawEvents(); toast('Fences deleted/updated.');
+  });
 }
 
 /* safe init */
-try {
-  if (window.L) { initMap(); }
-  else { window.addEventListener('load', () => (window.L ? initMap() : alert('Map library blocked by network.'))); }
-} catch (e) { console.error('Map init failed', e); }
+try { if (window.L) { initMap(); } else { window.addEventListener('load',()=>window.L&&initMap()); } }
+catch(e){ console.error('Map init failed', e); }
 
 /* ---------- parsing + normalization ---------- */
 function buildHeaderMap(headers){const map={},lower=headers.map(h=>String(h||'').trim().toLowerCase());for(const [canon,aliases] of Object.entries(HEADER_ALIASES)){for(let i=0;i<lower.length;i++){if(aliases.includes(lower[i])){map[canon]=headers[i];break;}}}return map;}
@@ -185,10 +245,11 @@ function normalizeRows(rows){
     const lat=Number(r[hm.lat]); const lon=Number(r[hm.lon]);
     if(!isFinite(lat)||Math.abs(lat)>90)continue; if(!isFinite(lon)||Math.abs(lon)>180)continue;
     let sp=r[hm.speed]; sp=(sp==null||sp==='')?NaN:Number(sp);
-    const mph=/mph/.test((hm.speed||'').toLowerCase()); if(isFinite(sp)&&mph) sp*=1.609344;
+    const mphHeader=/mph/.test((hm.speed||'').toLowerCase());
+    if(isFinite(sp) && mphHeader) sp*=1.609344;  // unify to kph internally
     const t=parseTs(r[hm.timestamp]);
     const evRaw=String(r[hm.event]??'').toLowerCase().trim(); const evs=evRaw?evRaw.split(/[;,\s]+/).filter(Boolean):[];
-    pts.push({t,lat,lon,speed:isFinite(sp)?sp:NaN,events:evs});
+    pts.push({t,lat,lon,speedKph:isFinite(sp)?sp:NaN,events:evs});
   }
   if(!pts.length) return {points:[],t0:NaN,t1:NaN,totalKm:0};
   if(pts.every(p=>isNaN(p.t))){const base=Date.now(); pts.forEach((p,i)=>p.t=base+i*1000);}
@@ -199,31 +260,57 @@ function normalizeRows(rows){
     b.heading=bearing(a,b);
     const dt=Math.max(0.001,(b.t-a.t)/1000);
     b.turnRate=Math.abs(degDelta(a.heading??b.heading,b.heading))/dt;
-    const v1=((isFinite(a.speed)?a.speed:0))/3.6, v2=((isFinite(b.speed)?b.speed:0))/3.6;
-    b.acc=(v2-v1)/dt;
+    const v1=((isFinite(a.speedKph)?a.speedKph:0))/3.6, v2=((isFinite(b.speedKph)?b.speedKph:0))/3.6; // m/s
+    b.acc=(v2-v1)/dt;  // m/s²
   }
+  // infill missing speeds (kph)
   for(let i=0;i<pts.length;i++){
-    if(!isFinite(pts[i].speed)){
+    if(!isFinite(pts[i].speedKph)){
       let L=i-1,R=i+1,ls=null,rs=null;
-      while(L>=0 && !isFinite(pts[L].speed)) L--;
-      while(R<pts.length && !isFinite(pts[R].speed)) R++;
-      if(L>=0) ls=pts[L].speed; if(R<pts.length) rs=pts[R].speed;
-      pts[i].speed = (isFinite(ls)&&isFinite(rs))? (ls+rs)/2 : (isFinite(ls)?ls:(isFinite(rs)?rs:0));
+      while(L>=0 && !isFinite(pts[L].speedKph)) L--;
+      while(R<pts.length && !isFinite(pts[R].speedKph)) R++;
+      if(L>=0) ls=pts[L].speedKph; if(R<pts.length) rs=pts[R].speedKph;
+      pts[i].speedKph = (isFinite(ls)&&isFinite(rs))? (ls+rs)/2 : (isFinite(ls)?ls:(isFinite(rs)?rs:0));
     }
   }
-  maxSpeed=pts.reduce((m,p)=>Math.max(m,p.speed||0),0);
+  maxSpeedKph=pts.reduce((m,p)=>Math.max(m,p.speedKph||0),0);
   const t0=pts[0].t, t1=pts[pts.length-1].t, totalKm=pts.reduce((s,p)=>s+(p.km||0),0);
   return {points:pts,t0,t1,totalKm};
 }
 
-function detectEvents(ds){
-  const minKph=30, turnThr=35, accThr=2.0, brkThr=-3.0;
-  for(const p of ds.points){p.events=(p.events||[]).filter(e=>!/^corner$|^accel$|^brake$/.test(e));}
+/* ---------- events: driving & fences ---------- */
+function detectDrivingEvents(ds){
+  // why: SI thresholds; display units do not affect physics
+  const THR = {
+    accelHard: 3.0,     // m/s²
+    brakeHarsh: -4.5,   // m/s²
+    crash: -7.5,        // m/s² (~0.76g)
+    turnRateHard: 45,   // deg/s
+    minCornerSpeedKph: 32 // ~20 mph
+  };
+  for(const p of ds.points){p.events=(p.events||[]).filter(e=>!/^corner|accel|brake|accel_hard|brake_harsh|corner_hard|crash$/.test(e));}
   for(let i=1;i<ds.points.length;i++){
-    const p=ds.points[i], sp=p.speed||0, tr=p.turnRate||0, a=p.acc??0;
-    if(sp>=minKph && tr>=turnThr) p.events.push('corner');
-    if(a>=accThr) p.events.push('accel');
-    if(a<=brkThr) p.events.push('brake');
+    const p=ds.points[i], spK=p.speedKph||0, tr=p.turnRate||0, a=p.acc??0;
+    if(a>=THR.accelHard) p.events.push('accel_hard');
+    if(a<=THR.brakeHarsh) p.events.push('brake_harsh');
+    if(a<=THR.crash) p.events.push('crash');                 // highest priority
+    if(spK>=THR.minCornerSpeedKph && tr>=THR.turnRateHard) p.events.push('corner_hard');
+  }
+}
+
+function detectFenceEvents(ds){
+  if(!geofences.features.length) return;
+  const polys=geofences.features.filter(f=>f.geometry && /Polygon|MultiPolygon/.test(f.geometry.type));
+  if(!polys.length) return;
+  for(let i=1;i<ds.points.length;i++){
+    const a=ds.points[i-1], b=ds.points[i];
+    const pa=turf.point([a.lon,a.lat]), pb=turf.point([b.lon,b.lat]);
+    for(const f of polys){
+      const name=(f.properties&&f.properties.name)||'Fence';
+      const ina=turf.booleanPointInPolygon(pa,f), inb=turf.booleanPointInPolygon(pb,f);
+      if(!ina && inb) b.events.push('enter:'+name);
+      if(ina && !inb) b.events.push('exit:'+name);
+    }
   }
 }
 
@@ -232,26 +319,48 @@ function drawRoute(ds){
   routeLayer.clearLayers(); eventLayer.clearLayers();
   const pts=ds.points; if(pts.length<2) return;
   for(let i=1;i<pts.length;i++){
-    const a=pts[i-1], b=pts[i]; const s=(a.speed+b.speed)/2;
-    L.polyline([[a.lat,a.lon],[b.lat,b.lon]],{weight:5,opacity:.6,color:speedToColor(s,maxSpeed)}).addTo(routeLayer);
+    const a=pts[i-1], b=pts[i]; const s=((a.speedKph||0)+(b.speedKph||0))/2;
+    L.polyline([[a.lat,a.lon],[b.lat,b.lon]],{weight:5,opacity:.6,color:speedToColor(s,maxSpeedKph)}).addTo(routeLayer);
   }
   const latlngs=pts.map(p=>[p.lat,p.lon]);
   mover.setLatLng(latlngs[0]); trail.setLatLngs([latlngs[0]]);
   map.fitBounds(latlngs,{padding:[20,20]});
-  if(q('#chkEvents').checked) drawEvents();
+  drawEvents();  // draw always; crash markers are always plotted
 }
 
 function drawEvents(){
-  eventLayer.clearLayers(); if(!dataset||!q('#chkEvents').checked) return;
+  eventLayer.clearLayers(); if(!dataset) return;
   for(const p of dataset.points){
     const ll=[p.lat,p.lon];
-    for(const ev of (p.events||[])){
-      let col='#9ca3af'; if(ev==='accel') col='var(--ok)'; if(ev==='brake') col='var(--bad)'; if(ev==='corner') col='var(--vio)';
-      if(/^enter:/.test(ev)) col='#38bdf8'; if(/^exit:/.test(ev)) col='#f59e0b';
-      L.circleMarker(ll,{radius:6,color:col,weight:2,fillOpacity:.9}).bindTooltip(new Date(p.t).toLocaleString()+' — '+ev).addTo(eventLayer);
+    const evs = p.events||[];
+    // draw crash first so it's never hidden
+    if(evs.includes('crash')){
+      L.circleMarker(ll,{radius:10,color:'var(--crash)',weight:3,fillOpacity:.9})
+        .bindTooltip(new Date(p.t).toLocaleString()+' — CRASH')
+        .addTo(eventLayer);
+    }
+    // respect toggle for other events
+    if(!q('#chkEvents').checked) continue;
+    for(const ev of evs){
+      if(ev==='crash') continue;
+      let col='#9ca3af', label=ev;
+      if(ev==='accel_hard'){ col='var(--ok)'; label='Hard Accel'; }
+      if(ev==='brake_harsh'){ col='var(--bad)'; label='Harsh Brake'; }
+      if(ev==='corner_hard'){ col='var(--vio)'; label='Hard Corner'; }
+      if(/^enter:/.test(ev)){ col='#38bdf8'; label=ev; }
+      if(/^exit:/.test(ev)){ col='#f59e0b'; label=ev; }
+      L.circleMarker(ll,{radius:6,color:col,weight:2,fillOpacity:.9}).bindTooltip(new Date(p.t).toLocaleString()+' — '+label).addTo(eventLayer);
     }
   }
 }
+
+/* ---------- geofences ---------- */
+function renderFences(){
+  drawnItems.clearLayers();
+  const gjl = L.geoJSON(geofences,{style:()=>({color:'#94a3b8',weight:2,fillOpacity:.08})});
+  gjl.eachLayer(l=>{ if(l.feature && l.feature.properties) l.properties=l.feature.properties; drawnItems.addLayer(l); });
+}
+function persistFences(){ try{ localStorage.setItem('dlb.geofences.v1', JSON.stringify(geofences)); }catch{} }
 
 /* ---------- file I/O ---------- */
 async function parseFile(file){
@@ -260,9 +369,15 @@ async function parseFile(file){
   if(ext==='xlsx'||ext==='xls'){const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; return XLSX.utils.sheet_to_json(ws,{defval:''});}
   throw new Error('Unsupported file');
 }
+function dl(name, content, type='application/json'){const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type})); a.download=name; a.click(); URL.revokeObjectURL(a.href);}
 
+/* ---------- dataset apply ---------- */
 function applyDataset(ds){
-  dataset=ds; detectEvents(ds); drawRoute(ds); updateStats(ds);
+  dataset=ds;
+  detectDrivingEvents(ds);
+  detectFenceEvents(ds);
+  drawRoute(ds);
+  updateStats(ds);
   q('#btnPlay').disabled=false; q('#btnPause').disabled=false; q('#scrub').disabled=false;
   q('#centerBox').style.display='none'; q('#tCur').style.display='inline-block';
   q('#scrub').value=0; playMs=ds.t0; lastTs=0;
@@ -270,10 +385,12 @@ function applyDataset(ds){
 
 function updateStats(ds){
   const dur=ds.t1-ds.t0;
-  const avg=ds.points.reduce((s,p)=>s+(p.speed||0),0)/ds.points.length;
-  q('#statDist').textContent=`${ds.totalKm.toFixed(2)} km`;
+  const avgKph=ds.points.reduce((s,p)=>s+(p.speedKph||0),0)/ds.points.length;
+  const maxDisp=kphToDisplay(maxSpeedKph).toFixed(0);
+  const avgDisp=kphToDisplay(avgKph).toFixed(0);
+  q('#statDist').textContent=`${ds.totalKm.toFixed(2)} km`;  // distance stays metric (map data)
   q('#statDur').textContent=fmtHMS(dur);
-  q('#statSpeed').textContent=`${avg.toFixed(0)}/${maxSpeed.toFixed(0)} km/h`;
+  q('#statSpeed').textContent=`${avgDisp}/${maxDisp} ${displaySuffix()}`;
 }
 
 /* ---------- playback ---------- */
@@ -293,7 +410,7 @@ function renderAt(idx,t){
   const pts=dataset.points,a=pts[idx],b=pts[Math.min(idx+1,pts.length-1)];
   const span=Math.max(1,b.t-a.t); const p=Math.min(1,Math.max(0,(t-a.t)/span));
   const lat=lerp(a.lat,b.lat,p), lon=lerp(a.lon,b.lon,p);
-  mover.setLatLng([lat,lon]); mover.setStyle({color:speedToColor(lerp(a.speed,b.speed,p),maxSpeed)});
+  mover.setLatLng([lat,lon]); mover.setStyle({color:speedToColor(lerp(a.speedKph,b.speedKph,p),maxSpeedKph)});
   if(q('#chkFollow').checked) map.panTo([lat,lon],{animate:false});
   const upto=pts.slice(0,idx+1).map(p=>[p.lat,p.lon]); if(upto.length){upto.push([lat,lon]); trail.setStyle({color:'var(--accent)'}); trail.setLatLngs(upto);}
   const frac=(t-dataset.t0)/(dataset.t1-dataset.t0); q('#scrub').value=String(Math.round(frac*1000));
@@ -302,15 +419,17 @@ function renderAt(idx,t){
 
 /* ---------- demo + export ---------- */
 function demoRows(){const base=Date.now(); const list=[
-  {t:base+0,lat:51.505,lon:-0.09,speed:0},{t:base+4000,lat:51.506,lon:-0.088,speed:18},
-  {t:base+8000,lat:51.507,lon:-0.086,speed:30},{t:base+12000,lat:51.508,lon:-0.084,speed:42},
-  {t:base+16000,lat:51.509,lon:-0.082,speed:50},{t:base+22000,lat:51.510,lon:-0.082,speed:55},
-  {t:base+28000,lat:51.511,lon:-0.083,speed:40},{t:base+34000,lat:51.512,lon:-0.085,speed:32},
-  {t:base+40000,lat:51.513,lon:-0.087,speed:24},{t:base+46000,lat:51.514,lon:-0.089,speed:15}
-]; return list.map(p=>({timestamp:new Date(p.t).toISOString(), lat:p.lat, lon:p.lon, speed:p.speed}));}
-
-function dl(name, content, type='text/plain'){const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type})); a.download=name; a.click(); URL.revokeObjectURL(a.href);}
-function exportGeoJSON(){if(!dataset) return; const fc={type:'FeatureCollection',features:dataset.points.map(p=>({type:'Feature',properties:{timestamp:new Date(p.t).toISOString(),speed:p.speed,events:p.events||[]},geometry:{type:'Point',coordinates:[p.lon,p.lat]}}))}; dl('telematics.geojson', JSON.stringify(fc,null,2), 'application/geo+json');}
+  {t:base+0,lat:51.505,lon:-0.09,speedKph:0},
+  {t:base+4000,lat:51.506,lon:-0.088,speedKph:18*1.6093/1.6093}, /* keep simple kph values */
+  {t:base+8000,lat:51.507,lon:-0.086,speedKph:30},
+  {t:base+12000,lat:51.508,lon:-0.084,speedKph:42},
+  {t:base+16000,lat:51.509,lon:-0.082,speedKph:50},
+  {t:base+22000,lat:51.510,lon:-0.082,speedKph:55},
+  {t:base+28000,lat:51.511,lon:-0.083,speedKph:40},
+  {t:base+34000,lat:51.512,lon:-0.085,speedKph:32},
+  {t:base+40000,lat:51.513,lon:-0.087,speedKph:24},
+  {t:base+46000,lat:51.514,lon:-0.089,speedKph:15}
+]; return list.map(p=>({timestamp:new Date(p.t).toISOString(), lat:p.lat, lon:p.lon, speed:p.speedKph}));}
 
 /* ---------- UI wiring ---------- */
 function enableDrop(){
@@ -329,25 +448,82 @@ q('#btnQuickDemo').onclick=()=>{const ds=normalizeRows(demoRows()); applyDataset
 q('#btnUpload').onclick=()=>q('#fileData').click();
 q('#btnDemo').onclick=()=>q('#btnQuickDemo').click();
 q('#fileData').onchange=async e=>{const f=e.target.files?.[0]; if(!f) return; const rows=await parseFile(f); const ds=normalizeRows(rows); applyDataset(ds); setPlaying(true); e.target.value='';};
-q('#btnFences').onclick=()=>q('#fileFence').click();
-q('#fileFence').onchange=async e=>{const f=e.target.files?.[0]; if(!f) return; try{const gj=JSON.parse(await f.text()); setGeofences(gj);}catch{toast('Failed to read GeoJSON');} e.target.value='';};
-q('#btnExport').onclick=exportGeoJSON;
 
+q('#btnFences').onclick=()=>q('#fileFence').click();
+q('#fileFence').onchange=async e=>{
+  const f=e.target.files?.[0]; if(!f) return;
+  try{
+    const gj=JSON.parse(await f.text());
+    if(gj.type!=='FeatureCollection'){ toast('Invalid GeoJSON'); e.target.value=''; return; }
+    geofences=gj; persistFences(); renderFences(); if(dataset){detectFenceEvents(dataset); drawEvents();}
+    toast(`Imported ${gj.features.length} feature(s).`);
+  }catch{ toast('Failed to read GeoJSON'); }
+  e.target.value='';
+};
+q('#btnExportFences').onclick=()=> dl('geofences.geojson', JSON.stringify(geofences,null,2));
+
+/* Manual draw/edit/delete controls */
+let editing=false, deleting=false;
+q('#btnDraw').onclick=()=>{ fenceDrawHandler.enable(); toast('Click to add vertices, double-click to finish'); };
+q('#btnEdit').onclick=()=>{
+  if(!editing){ fenceEditHandler.enable(); q('#btnEdit').textContent='Save Edits'; editing=true; toast('Drag vertices then click Save Edits'); }
+  else { fenceEditHandler.disable(); q('#btnEdit').textContent='Edit Fences'; editing=false; }
+};
+q('#btnDelete').onclick=()=>{
+  if(!deleting){ fenceDeleteHandler.enable(); q('#btnDelete').textContent='Done Deleting'; deleting=true; toast('Click fence(s) to delete, then Done'); }
+  else { fenceDeleteHandler.disable(); q('#btnDelete').textContent='Delete Fences'; deleting=false; }
+};
+
+/* Auto-geofence from dwell/stop clusters */
+q('#btnAutoFence').onclick=()=>{
+  if(!dataset){ toast('Load data first'); return; }
+  const stops = extractStops(dataset.points, /*kph*/5, /*minSec*/60);
+  if(!stops.length){ toast('No dwells ≥60s found.'); return; }
+  const pts = turf.featureCollection(stops.map(s=>turf.point([s.lon,s.lat])));
+  const clustered = turf.clustersDbscan(pts, 0.1, {minPoints:3, units:'kilometers'});
+  const groups={}; for(const f of clustered.features){ const id=f.properties.cluster; if(id!=null){ (groups[id]??=[]).push(f); } }
+  let added=0;
+  Object.keys(groups).forEach((id)=>{
+    const fc=turf.featureCollection(groups[id]);
+    let hull=turf.convex(fc);
+    if(!hull){ const center=turf.center(fc); hull=turf.buffer(center, 0.05, {units:'kilometers'}); }
+    else { hull=turf.buffer(hull, 0.015, {units:'kilometers'}); }
+    hull.properties={name:`Auto ${geofences.features.length+1}`};
+    geofences.features.push(hull); added++;
+  });
+  if(added){ persistFences(); renderFences(); if(dataset){detectFenceEvents(dataset); drawEvents();} toast(`Auto-created ${added} fence(s).`); }
+  else { toast('No clusters found.'); }
+};
+
+/* Units toggle: update stats (and any labels) */
+q('#selUnits').onchange=(e)=>{ displayUnit=e.target.value; updateStats(dataset||{points:[],t0:0,t1:0,totalKm:0}); drawEvents(); };
+
+/* playback controls */
 q('#btnPlay').onclick=()=>setPlaying(true);
 q('#btnPause').onclick=()=>setPlaying(false);
 q('#selRate').onchange=e=>{rate=Number(e.target.value)||1};
 q('#chkEvents').onchange=()=>drawEvents();
-q('#scrub').oninput=e=>{if(!dataset) return; const f=Number(e.target.value)/1000; const t=dataset.t0+f*(dataset.t1-dataset.t0); playMs=t; const idx=findIndex(dataset.points,t); renderAt(idx,t);};
+q('#scrub').oninput=e=>{
+  if(!dataset) return; const f=Number(e.target.value)/1000;
+  const t=dataset.t0+f*(dataset.t1-dataset.t0); playMs=t; const idx=findIndex(dataset.points,t); renderAt(idx,t);
+};
 window.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault(); if(q('#btnPlay').disabled) setPlaying(false); else setPlaying(true);}});
 
-/* geofences (basic) */
-function setGeofences(gj){
-  try{
-    const fc=turf.featureCollection((gj.features||[]).filter(f=>f.geometry&&/Polygon|MultiPolygon/.test(f.geometry.type)).map((f,i)=>{f.properties=f.properties||{}; if(!f.properties.name) f.properties.name=`Fence ${i+1}`; return f;}));
-    geofences=fc; fenceLayer.clearLayers(); L.geoJSON(fc,{style:()=>({color:'#94a3b8',weight:1.5,fillOpacity:.05})}).addTo(fenceLayer);
-    if(dataset){drawEvents();}
-    toast(`Loaded ${fc.features.length} geofence(s).`);
-  }catch(e){toast('Invalid GeoJSON');}
+/* --------- utilities for auto-fence --------- */
+function extractStops(points, maxKph=5, minSec=60){
+  const out=[]; let i=0;
+  while(i<points.length){
+    while(i<points.length && (points[i].speedKph||0)>maxKph) i++;
+    if(i>=points.length) break;
+    let j=i, sumLat=0,sumLon=0,count=0, t0=points[i].t;
+    while(j<points.length && (points[j].speedKph||0)<=maxKph){
+      sumLat+=points[j].lat; sumLon+=points[j].lon; count++; j++;
+    }
+    const t1=points[Math.max(i,j-1)].t, dur=(t1-t0)/1000;
+    if(dur>=minSec && count>0){ out.push({lat:sumLat/count, lon:sumLon/count, dur}); }
+    i=j+1;
+  }
+  return out;
 }
 </script>
 </body>
