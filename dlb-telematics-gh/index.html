@@ -6,7 +6,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>DLB Investigations — Telematics Player</title>
 <link rel="icon" href="assets/favicon.svg" />
-<!-- Fallback loader must be defined before the tags below -->
+
+<!-- Fallback loader then primary CDN links (with onerror fallback) -->
 <script>
   function _cdnFallback(which){
     const alt = {
@@ -22,7 +23,6 @@
     document.head.appendChild(s);
   }
 </script>
-<!-- Use jsDelivr first, fall back to unpkg on error -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
       onerror="_cdnFallback('leafletCss')">
 <script defer src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
@@ -33,6 +33,7 @@
         onerror="_cdnFallback('xlsx')"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"
         onerror="_cdnFallback('turf')"></script>
+
 <style>
 :root{--bg:#0b0f16;--card:#121826;--muted:#9aa4b2;--text:#e6e9ef;--accent:#00d1b2;--accent2:#0ea5e9;--ok:#22c55e;--bad:#ef4444;--warn:#eab308;--vio:#a78bfa}
 *{box-sizing:border-box}
@@ -42,7 +43,7 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:14px/
 .topbar{position:absolute;inset:0 0 auto 0;display:flex;align-items:center;gap:10px;padding:10px 12px;background:linear-gradient(180deg,rgba(18,24,38,.95),rgba(18,24,38,.6),transparent);border-bottom:1px solid #1e2433;z-index:10}
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.3px;margin-right:auto}
 .brand img{height:22px;width:auto;display:block}
-.badge{background:color-mix(in oklab, var(--accent) 18%, transparent);border:1px solid color-mix(in oklab, var(--accent) 60%, #2b3246);color:var(--text);padding:4px 8px;border-radius:999px;font-size:12px}
+.badge{background:rgba(0,209,178,.15);border:1px solid rgba(0,209,178,.5);color:var(--text);padding:4px 8px;border-radius:999px;font-size:12px}
 .btn{background:#1b2232;border:1px solid #2b3246;color:var(--text);padding:8px 10px;border-radius:10px;cursor:pointer}
 .btn.primary{background:var(--accent);color:#021314;border-color:transparent;font-weight:600}
 .btn.ghost{background:transparent}
@@ -131,7 +132,7 @@ const bearing=(a,b)=>{const lat1=toRad(a.lat), lat2=toRad(b.lat), dLon=toRad(b.l
 /* ---------- map + state ---------- */
 let map, routeLayer, eventLayer, fenceLayer, mover, trail;
 let dataset=null, geofences=null, maxSpeed=0;
-let play=false, rate=1, playMs=0, lastTs=0;            /* declared ONCE */
+let play=false, rate=1, playMs=0, lastTs=0;  /* single source of truth */
 
 function initMap(){
   map=L.map('map',{zoomControl:true,preferCanvas:true});
@@ -143,16 +144,15 @@ function initMap(){
   mover=L.circleMarker([51.5,-0.12],{radius:8,weight:2,color:'#fff',fillOpacity:1}).addTo(map);
   map.setView([51.5,-0.12],12);
 }
-<script>
-  // …this is inside your main script; replace the plain initMap() call:
-  try {
-    if (window.L) { initMap(); }
-    else { window.addEventListener('load', () => window.L ? initMap() : alert('Map library blocked by network.')); }
-  } catch (e) {
-    console.error('Map init failed', e);
-    alert('Map failed to load (possibly blocked). Try reloading or another network.');
-  }
-</script>
+
+/* safe init: NO nested <script> */
+try {
+  if (window.L) { initMap(); }
+  else { window.addEventListener('load', () => (window.L ? initMap() : alert('Map library blocked by network.'))); }
+} catch (e) {
+  console.error('Map init failed', e);
+}
+
 /* ---------- parsing + normalization ---------- */
 function buildHeaderMap(headers){const map={},lower=headers.map(h=>String(h||'').trim().toLowerCase());for(const [canon,aliases] of Object.entries(HEADER_ALIASES)){for(let i=0;i<lower.length;i++){if(aliases.includes(lower[i])){map[canon]=headers[i];break;}}}return map;}
 
@@ -180,7 +180,6 @@ function normalizeRows(rows){
     const v1=((isFinite(a.speed)?a.speed:0))/3.6, v2=((isFinite(b.speed)?b.speed:0))/3.6;
     b.acc=(v2-v1)/dt;
   }
-  /* fill missing speeds */
   for(let i=0;i<pts.length;i++){
     if(!isFinite(pts[i].speed)){
       let L=i-1,R=i+1,ls=null,rs=null;
@@ -325,7 +324,7 @@ function setGeofences(gj){
   try{
     const fc=turf.featureCollection((gj.features||[]).filter(f=>f.geometry&&/Polygon|MultiPolygon/.test(f.geometry.type)).map((f,i)=>{f.properties=f.properties||{}; if(!f.properties.name) f.properties.name=`Fence ${i+1}`; return f;}));
     geofences=fc; fenceLayer.clearLayers(); L.geoJSON(fc,{style:()=>({color:'#94a3b8',weight:1.5,fillOpacity:.05})}).addTo(fenceLayer);
-    if(dataset){/* recompute enter/exit in future */ drawEvents();}
+    if(dataset){drawEvents();}
     toast(`Loaded ${fc.features.length} geofence(s).`);
   }catch(e){toast('Invalid GeoJSON');}
 }
