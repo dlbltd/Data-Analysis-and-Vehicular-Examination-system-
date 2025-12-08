@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DLB Investigations — Telematics Player</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2300d1b2'/%3E%3Cstop offset='1' stop-color='%230ea5e9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect rx='6' width='32' height='32' fill='url(%23g)'/%3E%3Cpath d='M8 22l6-12 10 12' stroke='%23021314' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://unpkg.com/xlsx@0.20.0/dist/xlsx.full.min.js"></script>
+<script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+<style>
+:root{--bg:#0b0f16;--card:#121826;--muted:#9aa4b2;--text:#e6e9ef;--accent:#00d1b2;--ok:#22c55e;--bad:#ef4444;--vio:#a78bfa}
+*{box-sizing:border-box} html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.app{position:relative;height:100%} #map{position:absolute;inset:0}
+.topbar{position:absolute;inset:0 0 auto 0;display:flex;align-items:center;gap:10px;padding:10px 12px;background:linear-gradient(180deg,rgba(18,24,38,.95),rgba(18,24,38,.6),transparent);border-bottom:1px solid #1e2433;z-index:10}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;margin-right:auto}
+.brand .logo{height:22px;width:22px;border-radius:6px;background:linear-gradient(135deg,#00d1b2,#0ea5e9)}
+.btn{background:#1b2232;border:1px solid #2b3246;color:var(--text);padding:8px 10px;border-radius:10px;cursor:pointer}
+.btn.primary{background:var(--accent);color:#021314;border-color:transparent;font-weight:600}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.center{position:absolute;inset:0;display:grid;place-items:center;z-index:5;pointer-events:none}
+.drop{pointer-events:auto;background:var(--card);border:1px dashed #2b3246;border-radius:16px;padding:22px;text-align:center;max-width:560px;box-shadow:0 6px 30px rgba(0,0,0,.35)}
+.drop h2{margin:0 0 6px;font-size:18px}
+.hint{color:var(--muted);font-size:12px}
+.controls{position:absolute;inset:auto 0 0 0;display:flex;align-items:center;gap:10px;padding:10px;background:linear-gradient(0deg,rgba(18,24,38,.95),rgba(18,24,38,.6),transparent);z-index:10}
+.slider{flex:1}
+.kv{display:flex;gap:10px;align-items:center}
+.kv .chip{background:#151b29;border:1px solid #2b3246;border-radius:999px;padding:5px 9px;color:var(--muted);font-size:12px}
+.toggle{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:12px}
+.toast{position:absolute;right:10px;bottom:64px;background:#1b2232;border:1px solid #2b3246;padding:10px 12px;border-radius:10px;max-width:360px;z-index:20;display:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <div id="map"></div>
+  <div class="topbar">
+    <div class="brand"><span class="logo"></span><span>DLB Investigations — Telematics Player</span></div>
+    <button id="btnUpload" class="btn">Upload CSV/XLSX</button>
+    <button id="btnDemo" class="btn">Demo</button>
+    <button id="btnFences" class="btn">Geofences</button>
+    <button id="btnExport" class="btn">Export</button>
+    <input id="fileData" type="file" accept=".csv,.xlsx,.xls" hidden>
+    <input id="fileFence" type="file" accept=".geojson,.json" hidden>
+  </div>
+  <div class="center" id="centerBox">
+    <div class="drop" id="drop">
+      <h2>Drop your telematics file</h2>
+      <div class="hint">CSV/XLSX with <code>timestamp, lat, lon, speed</code>. Auto-plays.</div>
+      <div style="margin-top:10px;display:flex;gap:8px;justify-content:center">
+        <button id="btnPick" class="btn primary">Choose file</button>
+        <button id="btnQuickDemo" class="btn">Use demo</button>
+      </div>
+    </div>
+  </div>
+  <div class="controls">
+    <button id="btnPlay" class="btn primary" disabled>Play</button>
+    <button id="btnPause" class="btn" disabled>Pause</button>
+    <input id="scrub" class="slider" type="range" min="0" max="1000" value="0" disabled>
+    <span id="tCur" class="kv chip" style="display:none"></span>
+    <div class="kv"><span class="chip" id="statDist">0.00 km</span><span class="chip" id="statDur">00:00:00</span><span class="chip" id="statSpeed">0/0 km/h</span></div>
+    <label class="toggle"><input id="chkFollow" type="checkbox" checked> Follow</label>
+    <label class="toggle"><input id="chkEvents" type="checkbox" checked> Events</label>
+    <select id="selRate" class="btn"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option></select>
+  </div>
+  <div id="toast" class="toast"></div>
+</div>
+<script>
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const isNum=v=>typeof v==='number'&&isFinite(v);
+const toNum=v=>typeof v==='string'?Number(v.trim()):Number(v);
+const fmtHMS=ms=>{if(!isFinite(ms))return'--:--:--';const s=Math.max(0,Math.floor(ms/1000));const h=String(Math.floor(s/3600)).padStart(2,'0');const m=String(Math.floor((s%3600)/60)).padStart(2,'0');const ss=String(s%60).padStart(2,'0');return h+':'+m+':'+ss};
+const toast=(m,ms=2200)=>{const t=document.getElementById('toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',ms);};
+const speedToColor=(s,m=100)=>{const p=clamp(s/(m||1),0,1);const h=210-210*p;return `hsl(${h},80%,55%)`};
+const degNorm=a=>((a%360)+360)%360, degDelta=(a,b)=>{let d=degNorm(b)-degNorm(a); if(d>180)d-=360; if(d<-180)d+=360; return d;};
+const HEADER_ALIASES={timestamp:['timestamp','time','date','datetime','ts','recorded_at'],lat:['lat','latitude','y'],lon:['lon','lng','long','longitude','x'],speed:['speed','speed_kmh','kph','kmh','km/h','mph','speed_mph'],event:['event','evt','flag','note','tag']};
+function buildHeaderMap(headers){const map={},lower=headers.map(h=>String(h||'').trim().toLowerCase());for(const [canon,aliases] of Object.entries(HEADER_ALIASES)){for(let i=0;i<lower.length;i++){if(aliases.includes(lower[i])){map[canon]=headers[i];break;}}}return map;}
+function parseTs(v){if(v==null||v==='')return NaN;if(typeof v==='number'){if(v>59&&v<60000){const e=new Date(Date.UTC(1899,11,30)).getTime();return e+Math.round(v*86400000);} if(v>1e9&&v<1e12)return v*1000; if(v>=1e12)return v;} const s=String(v).trim(); if(!s)return NaN; if(/^\\d{10}$/.test(s))return Number(s)*1000; if(/^\\d{13}$/.test(s))return Number(s); const t=Date.parse(s); return isNaN(t)?NaN:t;}
+const R=6371, toRad=d=>d*Math.PI/180, toDeg=r=>r*180/Math.PI;
+const kmBetween=(a,b)=>{const dLat=toRad(b.lat-a.lat), dLon=toRad(b.lon-a.lon); const la1=toRad(a.lat), la2=toRad(b.lat); const x=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin((b.lon-a.lon)*Math.PI/180/2)**2; return 2*R*Math.asin(Math.min(1,Math.sqrt(x)));};
+const bearing=(a,b)=>{const lat1=(a.lat*Math.PI/180), lat2=(b.lat*Math.PI/180), dLon=((b.lon-a.lon)*Math.PI/180); const y=Math.sin(dLon)*Math.cos(lat2); const x=Math.cos(lat1)*Math.cos(lat2)*Math.cos(dLon)-Math.sin(lat1)*Math.sin(lat2); return degNorm((Math.atan2(y,x)*180/Math.PI));};
+let map, routeLayer, eventLayer, fenceLayer, mover, trail;
+let dataset=null, geofences=null, play=false, rate=1, playMs=0, lastTs=0, maxSpeed=0;
+function initMap(){map=L.map('map',{zoomControl:true,preferCanvas:true}); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map); routeLayer=L.layerGroup().addTo(map); eventLayer=L.layerGroup().addTo(map); fenceLayer=L.layerGroup().addTo(map); trail=L.polyline([], {weight:5,opacity:.9}).addTo(map); mover=L.circleMarker([51.5,-0.12],{radius:8,weight:2,color:'#fff',fillOpacity:1}).addTo(map); map.setView([51.5,-0.12],12);} initMap();
+const q=s=>document.querySelector(s);
+function normalizeRows(rows){
+  if(!rows.length) return {points:[],issues:['No rows']};
+  const hm=buildHeaderMap(Object.keys(rows[0])); const pts=[];
+  for(const r of rows){
+    const lat=toNum(r[hm.lat]); const lon=toNum(r[hm.lon]); if(!isNum(lat)||Math.abs(lat)>90)continue; if(!isNum(lon)||Math.abs(lon)>180)continue;
+    let sp=r[hm.speed]; sp=(sp==null||sp==='')?NaN:toNum(sp); const mph=/mph/.test((hm.speed||'').toLowerCase()); if(isNum(sp)&&mph) sp*=1.609344;
+    const t=parseTs(r[hm.timestamp]); const evRaw=String(r[hm.event]??'').toLowerCase().trim(); const evs=evRaw?evRaw.split(/[;,\s]+/).filter(Boolean):[];
+    pts.push({t,lat,lon,speed:isNum(sp)?sp:NaN,events:evs});
+  }
+  if(pts.every(p=>isNaN(p.t))){const base=Date.now(); pts.forEach((p,i)=>p.t=base+i*1000);}
+  pts.sort((a,b)=>a.t-b.t);
+  for(let i=1;i<pts.length;i++){const a=pts[i-1], b=pts[i]; b.km=kmBetween(a,b); b.heading=bearing(a,b); const dt=Math.max(0.001,(b.t-a.t)/1000); b.turnRate=Math.abs(degDelta(a.heading??b.heading,b.heading))/dt; const v1=((isNum(a.speed)?a.speed:0))/3.6, v2=((isNum(b.speed)?b.speed:0))/3.6; b.acc=(v2-v1)/dt;}
+  for(let i=0;i<pts.length;i++){if(!isNum(pts[i].speed)){let L=i-1,R=i+1,ls=null,rs=null;while(L>=0&&!isNum(pts[L].speed))L--;while(R<pts.length&&!isNum(pts[R].speed))R++; if(L>=0)ls=pts[L].speed; if(R<pts.length)rs=pts[R].speed; pts[i].speed=isNum(ls)&&isNum(rs)?(ls+rs)/2:(isNum(ls)?ls:(isNum(rs)?rs:0));}}
+  maxSpeed=pts.reduce((m,p)=>Math.max(m,p.speed||0),0);
+  const t0=pts[0]?.t??NaN, t1=pts.at(-1)?.t??NaN, totalKm=pts.reduce((s,p)=>s+(p.km||0),0);
+  return {points:pts, t0, t1, totalKm};
+}
+function detectEvents(ds){
+  const minKph=30, turnThr=35, accThr=2.0, brkThr=-3.0;
+  for(const p of ds.points){p.events=(p.events||[]).filter(e=>!/^corner$|^accel$|^brake$/.test(e));}
+  for(let i=1;i<ds.points.length;i++){const p=ds.points[i], sp=p.speed||0, tr=p.turnRate||0, a=p.acc??0; if(sp>=minKph && tr>=turnThr) p.events.push('corner'); if(a>=accThr) p.events.push('accel'); if(a<=brkThr) p.events.push('brake');}
+}
+function drawRoute(ds){
+  routeLayer.clearLayers(); eventLayer.clearLayers();
+  const pts=ds.points; if(pts.length<2) return;
+  for(let i=1;i<pts.length;i++){const a=pts[i-1], b=pts[i]; const s=(a.speed+b.speed)/2; L.polyline([[a.lat,a.lon],[b.lat,b.lon]],{weight:5,opacity:.6,color:speedToColor(s,maxSpeed)}).addTo(routeLayer);}
+  const latlngs=pts.map(p=>[p.lat,p.lon]); map.fitBounds(latlngs,{padding:[20,20]});
+  mover.setLatLng(latlngs[0]); trail.setLatLngs([latlngs[0]]);
+  if(q('#chkEvents').checked) drawEvents();
+}
+function drawEvents(){
+  eventLayer.clearLayers(); if(!dataset||!q('#chkEvents').checked) return;
+  for(const p of dataset.points){const ll=[p.lat,p.lon]; for(const ev of (p.events||[])){let col='#9ca3af'; if(ev==='accel') col='var(--ok)'; if(ev==='brake') col='var(--bad)'; if(ev==='corner') col='var(--vio)'; if(/^enter:/.test(ev)) col='#38bdf8'; if(/^exit:/.test(ev)) col='#f59e0b'; L.circleMarker(ll,{radius:6,color:col,weight:2,fillOpacity:.9}).bindTooltip(new Date(p.t).toLocaleString()+' — '+ev).addTo(eventLayer);}}
+}
+async function parseFile(file){
+  const ext=(file.name.split('.').pop()||'').toLowerCase();
+  if(ext==='csv'){const text=await file.text(); const parsed=Papa.parse(text,{header:true,dynamicTyping:true,skipEmptyLines:true}); return parsed.data;}
+  if(ext==='xlsx'||ext==='xls'){const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; return XLSX.utils.sheet_to_json(ws,{defval:''});}
+  throw new Error('Unsupported file');
+}
+function applyDataset(ds){dataset=ds; detectEvents(ds); drawRoute(ds); updateStats(ds); enablePlayer(true); q('#centerBox').style.display='none'; q('#tCur').style.display='inline-block'; q('#scrub').value=0; playMs=ds.t0; lastTs=0;}
+function updateStats(ds){const dur=ds.t1-ds.t0; const avg=ds.points.reduce((s,p)=>s+(p.speed||0),0)/ds.points.length; const max=maxSpeed; q('#statDist').textContent=`${ds.totalKm.toFixed(2)} km`; q('#statDur').textContent=fmtHMS(dur); q('#statSpeed').textContent=`${avg.toFixed(0)}/${max.toFixed(0)} km/h`; }
+function enablePlayer(on){document.getElementById('btnPlay').disabled=!on; document.getElementById('btnPause').disabled=!on; document.getElementById('scrub').disabled=!on;}
+function tick(ts){
+  if(!play||!dataset) return;
+  if(!lastTs) lastTs=ts;
+  const dt=ts-lastTs; lastTs=ts; playMs+=dt*rate;
+  if(playMs>=dataset.t1){playMs=dataset.t1; setPlaying(false);}
+  const idx=findIndex(dataset.points, playMs);
+  renderAt(idx, playMs);
+  if(play) requestAnimationFrame(tick);
+}
+function setPlaying(p){play=p; document.getElementById('btnPlay').disabled=p; document.getElementById('btnPause').disabled=!p; if(p) requestAnimationFrame(tick);}
+function findIndex(points,t){let lo=0,hi=points.length-1,mid=0;while(lo<=hi){mid=(lo+hi)>>1; if(points[mid].t===t)return mid; if(points[mid].t<t)lo=mid+1; else hi=mid-1;} return Math.max(0,Math.min(points.length-2,lo-1));}
+function lerp(a,b,p){return a+(b-a)*p;}
+function renderAt(idx,t){
+  const pts=dataset.points,a=pts[idx],b=pts[Math.min(idx+1,pts.length-1)]; const span=Math.max(1,b.t-a.t); const p=clamp((t-a.t)/span,0,1);
+  const lat=lerp(a.lat,b.lat,p), lon=lerp(a.lon,b.lon,p); mover.setLatLng([lat,lon]); mover.setStyle({color:speedToColor(lerp(a.speed,b.speed,p),maxSpeed)});
+  if(document.getElementById('chkFollow').checked) map.panTo([lat,lon],{animate:false});
+  const upto=pts.slice(0,idx+1).map(p=>[p.lat,p.lon]); if(upto.length){upto.push([lat,lon]); trail.setStyle({color:'var(--accent)'}); trail.setLatLngs(upto);}
+  const frac=(t-dataset.t0)/(dataset.t1-dataset.t0); document.getElementById('scrub').value=String(Math.round(frac*1000));
+  document.getElementById('tCur').textContent=new Date(t).toLocaleTimeString();
+}
+function demoRows(){const base=Date.now(); const list=[
+  {t:base+0,lat:51.505,lon:-0.09,speed:0},{t:base+4000,lat:51.506,lon:-0.088,speed:18},
+  {t:base+8000,lat:51.507,lon:-0.086,speed:30},{t:base+12000,lat:51.508,lon:-0.084,speed:42},
+  {t:base+16000,lat:51.509,lon:-0.082,speed:50},{t:base+22000,lat:51.510,lon:-0.082,speed:55},
+  {t:base+28000,lat:51.511,lon:-0.083,speed:40},{t:base+34000,lat:51.512,lon:-0.085,speed:32},
+  {t:base+40000,lat:51.513,lon:-0.087,speed:24},{t:base+46000,lat:51.514,lon:-0.089,speed:15}
+]; return list.map(p=>({timestamp:new Date(p.t).toISOString(), lat:p.lat, lon:p.lon, speed:p.speed}));}
+function dl(name, content, type='text/plain'){const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type})); a.download=name; a.click(); URL.revokeObjectURL(a.href);}
+function exportGeoJSON(){if(!dataset) return; const fc={type:'FeatureCollection',features:dataset.points.map(p=>({type:'Feature',properties:{timestamp:new Date(p.t).toISOString(),speed:p.speed,events:p.events||[]},geometry:{type:'Point',coordinates:[p.lon,p.lat]}}))}; dl('telematics.geojson', JSON.stringify(fc,null,2), 'application/geo+json');}
+function enableDrop(){
+  const box=document.getElementById('drop');
+  ['dragover','dragenter'].forEach(ev=>box.addEventListener(ev,e=>{e.preventDefault(); box.style.borderColor='var(--accent)'}));
+  ;['dragleave','drop'].forEach(ev=>box.addEventListener(ev,e=>{box.style.borderColor='#2b3246'}));
+  box.addEventListener('drop',async e=>{e.preventDefault(); const f=e.dataTransfer.files?.[0]; if(!f) return; const rows=await (async()=>{if(f.name.toLowerCase().endsWith('.csv')){const t=await f.text(); return Papa.parse(t,{header:true,dynamicTyping:true,skipEmptyLines:true}).data;} const buf=await f.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; return XLSX.utils.sheet_to_json(ws,{defval:''});})(); const ds=normalizeRows(rows); applyDataset(ds); setPlaying(true);});
+}
+enableDrop();
+document.getElementById('btnPick').onclick=()=>document.getElementById('fileData').click();
+document.getElementById('btnQuickDemo').onclick=()=>{const ds=normalizeRows(demoRows()); applyDataset(ds); setPlaying(true);};
+document.getElementById('btnUpload').onclick=()=>document.getElementById('fileData').click();
+document.getElementById('btnDemo').onclick=()=>document.getElementById('btnQuickDemo').click();
+document.getElementById('fileData').onchange=async e=>{const f=e.target.files?.[0]; if(!f) return; const rows=await (async()=>{if(f.name.toLowerCase().endsWith('.csv')){const t=await f.text(); return Papa.parse(t,{header:true,dynamicTyping:true,skipEmptyLines:true}).data;} const buf=await f.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; return XLSX.utils.sheet_to_json(ws,{defval:''});})(); const ds=normalizeRows(rows); applyDataset(ds); setPlaying(true); e.target.value='';};
+document.getElementById('btnFences').onclick=()=>document.getElementById('fileFence').click();
+document.getElementById('fileFence').onchange=async e=>{const f=e.target.files?.[0]; if(!f) return; try{const gj=JSON.parse(await f.text()); /* setGeofences simplified */ }catch{toast('Failed to read GeoJSON');} e.target.value='';};
+document.getElementById('btnExport').onclick=exportGeoJSON;
+const elPlay=document.getElementById('btnPlay'), elPause=document.getElementById('btnPause'), elScrub=document.getElementById('scrub'); let rate=1, play=false, playMs=0, lastTs=0, dataset=null, maxSpeed=0;
+function tick(ts){
+  if(!play||!dataset) return;
+  if(!lastTs) lastTs=ts;
+  const dt=ts-lastTs; lastTs=ts; playMs+=dt*rate;
+  if(playMs>=dataset.t1){playMs=dataset.t1; setPlaying(false);}
+  const idx=findIndex(dataset.points, playMs);
+  renderAt(idx, playMs);
+  if(play) requestAnimationFrame(tick);
+}
+document.getElementById('selRate').onchange=e=>{rate=Number(e.target.value)||1};
+document.getElementById('chkEvents').onchange=()=>drawEvents();
+elScrub.oninput=e=>{if(!dataset) return; const f=Number(e.target.value)/1000; const t=dataset.t0+f*(dataset.t1-dataset.t0); playMs=t; const idx=findIndex(dataset.points,t); renderAt(idx,t);};
+window.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault(); if(elPlay.disabled) setPlaying(false); else setPlaying(true);}});
+function setPlaying(p){play=p; elPlay.disabled=p; elPause.disabled=!p; if(p) requestAnimationFrame(tick);}
+function findIndex(points,t){let lo=0,hi=points.length-1,mid=0;while(lo<=hi){mid=(lo+hi)>>1; if(points[mid].t===t)return mid; if(points[mid].t<t)lo=mid+1; else hi=mid-1;} return Math.max(0,Math.min(points.length-2,lo-1));}
+function lerp(a,b,p){return a+(b-a)*p;}
+function renderAt(idx,t){}
+</script>
+</body>
+</html>
