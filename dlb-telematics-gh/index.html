@@ -80,6 +80,7 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
 .btn.primary{background:var(--accent);color:#021314;border-color:transparent;font-weight:600}
 .btn.ghost{background:transparent}
 .btn:disabled{opacity:.55;cursor:not-allowed}
+
 .slider{flex:1}
 .kv{display:flex;gap:10px;align-items:center}
 .kv .chip{background:#151b29;border:1px solid #2b3246;border-radius:999px;padding:5px 9px;color:var(--muted);font-size:12px}
@@ -164,8 +165,8 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
 </div>
 
 <script>
-/* ---------- helpers ---------- */
-const q = (s)=>document.querySelector(s);
+/* ------------ helpers ------------ */
+const q=(s)=>document.querySelector(s);
 const fmtHMS=ms=>{if(!isFinite(ms))return'--:--:--';const s=Math.max(0,Math.floor(ms/1000));const h=String(Math.floor(s/3600)).padStart(2,'0');const m=String(Math.floor((s%3600)/60)).padStart(2,'0');const ss=String(s%60).padStart(2,'0');return h+':'+m+':'+ss};
 const toast=(m,ms=2200)=>{const t=q('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',ms);};
 const speedToColor=(s,m=100)=>{const p=Math.min(1,Math.max(0,(s||0)/(m||1)));const h=210-210*p;return `hsl(${h},80%,55%)`};
@@ -178,12 +179,12 @@ const kmBetween=(a,b)=>{const dLat=toRad(b.lat-a.lat), dLon=toRad(b.lon-a.lon); 
 const bearing=(a,b)=>{const lat1=toRad(a.lat), lat2=toRad(b.lat), dLon=toRad(b.lon-a.lon); const y=Math.sin(dLon)*Math.cos(lat2); const x=Math.cos(lat1)*Math.cos(lat2)*Math.cos(dLon)-Math.sin(lat1)*Math.sin(lat2); return degNorm(toDeg(Math.atan2(y,x)));};
 const MPH_PER_KPH = 0.621371;
 
-/* ---------- units (display) ---------- */
-let displayUnit='mph';  // default MPH
+/* Units (display only; physics in SI) */
+let displayUnit='mph';
 const kphToDisplay = (kph)=> displayUnit==='mph' ? kph*MPH_PER_KPH : kph;
 const displaySuffix = ()=> displayUnit==='mph' ? 'mph' : 'km/h';
 
-/* ---------- map + state ---------- */
+/* ------------ map + state ------------ */
 let map, routeLayer, eventLayer, mover, trail;
 let drawnItems, fenceDrawHandler, fenceEditHandler, fenceDeleteHandler;
 let dataset=null, geofences={type:"FeatureCollection",features:[]}, maxSpeedKph=0;
@@ -199,20 +200,14 @@ function initMap(){
   mover=L.circleMarker([51.5,-0.12],{radius:8,weight:2,color:'#fff',fillOpacity:1}).addTo(map);
   map.setView([51.5,-0.12],12);
 
-  // draw/edit handlers (we drive with our own buttons)
   fenceDrawHandler=new L.Draw.Polygon(map,{shapeOptions:{color:'#94a3b8',weight:2,fillOpacity:.08}});
   fenceEditHandler=new L.EditToolbar.Edit(map,{featureGroup:drawnItems});
   fenceDeleteHandler=new L.EditToolbar.Delete(map,{featureGroup:drawnItems});
 
-  // restore fences from localStorage
-  try{
-    const saved=localStorage.getItem('dlb.geofences.v1');
-    if(saved){ geofences=JSON.parse(saved); renderFences(); }
-  }catch{}
+  try{const saved=localStorage.getItem('dlb.geofences.v1'); if(saved){ geofences=JSON.parse(saved); renderFences(); }}catch{}
 
   map.on(L.Draw.Event.CREATED, e=>{
-    const layer=e.layer;
-    drawnItems.addLayer(layer);
+    const layer=e.layer; drawnItems.addLayer(layer);
     const gj=layer.toGeoJSON();
     const name=prompt('Name this geofence:', 'Fence '+(geofences.features.length+1))||('Fence '+(geofences.features.length+1));
     gj.properties={...(gj.properties||{}), name};
@@ -230,12 +225,10 @@ function initMap(){
     persistFences(); drawEvents(); toast('Fences deleted/updated.');
   });
 }
-
-/* safe init */
 try { if (window.L) { initMap(); } else { window.addEventListener('load',()=>window.L&&initMap()); } }
 catch(e){ console.error('Map init failed', e); }
 
-/* ---------- parsing + normalization ---------- */
+/* ------------ parsing + normalization ------------ */
 function buildHeaderMap(headers){const map={},lower=headers.map(h=>String(h||'').trim().toLowerCase());for(const [canon,aliases] of Object.entries(HEADER_ALIASES)){for(let i=0;i<lower.length;i++){if(aliases.includes(lower[i])){map[canon]=headers[i];break;}}}return map;}
 
 function normalizeRows(rows){
@@ -263,7 +256,6 @@ function normalizeRows(rows){
     const v1=((isFinite(a.speedKph)?a.speedKph:0))/3.6, v2=((isFinite(b.speedKph)?b.speedKph:0))/3.6; // m/s
     b.acc=(v2-v1)/dt;  // m/s²
   }
-  // infill missing speeds (kph)
   for(let i=0;i<pts.length;i++){
     if(!isFinite(pts[i].speedKph)){
       let L=i-1,R=i+1,ls=null,rs=null;
@@ -278,9 +270,8 @@ function normalizeRows(rows){
   return {points:pts,t0,t1,totalKm};
 }
 
-/* ---------- events: driving & fences ---------- */
+/* ------------ driving + fence events ------------ */
 function detectDrivingEvents(ds){
-  // why: SI thresholds; display units do not affect physics
   const THR = {
     accelHard: 3.0,     // m/s²
     brakeHarsh: -4.5,   // m/s²
@@ -297,7 +288,6 @@ function detectDrivingEvents(ds){
     if(spK>=THR.minCornerSpeedKph && tr>=THR.turnRateHard) p.events.push('corner_hard');
   }
 }
-
 function detectFenceEvents(ds){
   if(!geofences.features.length) return;
   const polys=geofences.features.filter(f=>f.geometry && /Polygon|MultiPolygon/.test(f.geometry.type));
@@ -314,7 +304,7 @@ function detectFenceEvents(ds){
   }
 }
 
-/* ---------- draw ---------- */
+/* ------------ draw ------------ */
 function drawRoute(ds){
   routeLayer.clearLayers(); eventLayer.clearLayers();
   const pts=ds.points; if(pts.length<2) return;
@@ -325,21 +315,18 @@ function drawRoute(ds){
   const latlngs=pts.map(p=>[p.lat,p.lon]);
   mover.setLatLng(latlngs[0]); trail.setLatLngs([latlngs[0]]);
   map.fitBounds(latlngs,{padding:[20,20]});
-  drawEvents();  // draw always; crash markers are always plotted
+  drawEvents();
 }
-
 function drawEvents(){
   eventLayer.clearLayers(); if(!dataset) return;
   for(const p of dataset.points){
     const ll=[p.lat,p.lon];
     const evs = p.events||[];
-    // draw crash first so it's never hidden
     if(evs.includes('crash')){
       L.circleMarker(ll,{radius:10,color:'var(--crash)',weight:3,fillOpacity:.9})
         .bindTooltip(new Date(p.t).toLocaleString()+' — CRASH')
         .addTo(eventLayer);
     }
-    // respect toggle for other events
     if(!q('#chkEvents').checked) continue;
     for(const ev of evs){
       if(ev==='crash') continue;
@@ -354,7 +341,7 @@ function drawEvents(){
   }
 }
 
-/* ---------- geofences ---------- */
+/* ------------ geofences ------------ */
 function renderFences(){
   drawnItems.clearLayers();
   const gjl = L.geoJSON(geofences,{style:()=>({color:'#94a3b8',weight:2,fillOpacity:.08})});
@@ -362,16 +349,15 @@ function renderFences(){
 }
 function persistFences(){ try{ localStorage.setItem('dlb.geofences.v1', JSON.stringify(geofences)); }catch{} }
 
-/* ---------- file I/O ---------- */
+/* ------------ file I/O ------------ */
 async function parseFile(file){
   const ext=(file.name.split('.').pop()||'').toLowerCase();
   if(ext==='csv'){const text=await file.text(); const parsed=Papa.parse(text,{header:true,dynamicTyping:true,skipEmptyLines:true}); return parsed.data;}
   if(ext==='xlsx'||ext==='xls'){const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; return XLSX.utils.sheet_to_json(ws,{defval:''});}
   throw new Error('Unsupported file');
 }
-function dl(name, content, type='application/json'){const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type})); a.download=name; a.click(); URL.revokeObjectURL(a.href);}
 
-/* ---------- dataset apply ---------- */
+/* ------------ dataset apply ------------ */
 function applyDataset(ds){
   dataset=ds;
   detectDrivingEvents(ds);
@@ -382,18 +368,18 @@ function applyDataset(ds){
   q('#centerBox').style.display='none'; q('#tCur').style.display='inline-block';
   q('#scrub').value=0; playMs=ds.t0; lastTs=0;
 }
-
 function updateStats(ds){
+  if(!ds||!ds.points||!ds.points.length){ q('#statDist').textContent='0.00 km'; q('#statDur').textContent='00:00:00'; q('#statSpeed').textContent='0/0 '+displaySuffix(); return; }
   const dur=ds.t1-ds.t0;
   const avgKph=ds.points.reduce((s,p)=>s+(p.speedKph||0),0)/ds.points.length;
   const maxDisp=kphToDisplay(maxSpeedKph).toFixed(0);
   const avgDisp=kphToDisplay(avgKph).toFixed(0);
-  q('#statDist').textContent=`${ds.totalKm.toFixed(2)} km`;  // distance stays metric (map data)
+  q('#statDist').textContent=`${ds.totalKm.toFixed(2)} km`;
   q('#statDur').textContent=fmtHMS(dur);
   q('#statSpeed').textContent=`${avgDisp}/${maxDisp} ${displaySuffix()}`;
 }
 
-/* ---------- playback ---------- */
+/* ------------ playback ------------ */
 function setPlaying(p){play=p; q('#btnPlay').disabled=p; q('#btnPause').disabled=!p; if(p) requestAnimationFrame(tick);}
 function tick(ts){
   if(!play||!dataset) return;
@@ -417,21 +403,21 @@ function renderAt(idx,t){
   q('#tCur').textContent=new Date(t).toLocaleTimeString();
 }
 
-/* ---------- demo + export ---------- */
+/* ------------ demo ------------ */
 function demoRows(){const base=Date.now(); const list=[
-  {t:base+0,lat:51.505,lon:-0.09,speedKph:0},
-  {t:base+4000,lat:51.506,lon:-0.088,speedKph:18*1.6093/1.6093}, /* keep simple kph values */
-  {t:base+8000,lat:51.507,lon:-0.086,speedKph:30},
-  {t:base+12000,lat:51.508,lon:-0.084,speedKph:42},
-  {t:base+16000,lat:51.509,lon:-0.082,speedKph:50},
-  {t:base+22000,lat:51.510,lon:-0.082,speedKph:55},
-  {t:base+28000,lat:51.511,lon:-0.083,speedKph:40},
-  {t:base+34000,lat:51.512,lon:-0.085,speedKph:32},
-  {t:base+40000,lat:51.513,lon:-0.087,speedKph:24},
-  {t:base+46000,lat:51.514,lon:-0.089,speedKph:15}
-]; return list.map(p=>({timestamp:new Date(p.t).toISOString(), lat:p.lat, lon:p.lon, speed:p.speedKph}));}
+  {t:base+0,lat:51.505,lon:-0.09, kph:0},
+  {t:base+4000,lat:51.506,lon:-0.088,kph:18},
+  {t:base+8000,lat:51.507,lon:-0.086,kph:30},
+  {t:base+12000,lat:51.508,lon:-0.084,kph:42},
+  {t:base+16000,lat:51.509,lon:-0.082,kph:50},
+  {t:base+22000,lat:51.510,lon:-0.082,kph:55},
+  {t:base+28000,lat:51.511,lon:-0.083,kph:40},
+  {t:base+34000,lat:51.512,lon:-0.085,kph:32},
+  {t:base+40000,lat:51.513,lon:-0.087,kph:24},
+  {t:base+46000,lat:51.514,lon:-0.089,kph:15}
+]; return list.map(p=>({timestamp:new Date(p.t).toISOString(), lat:p.lat, lon:p.lon, speed:p.kph}));}
 
-/* ---------- UI wiring ---------- */
+/* ------------ UI wiring ------------ */
 function enableDrop(){
   const box=document.getElementById('drop');
   ['dragover','dragenter'].forEach(ev=>box.addEventListener(ev,e=>{e.preventDefault(); box.style.borderColor='var(--accent)'}));
@@ -460,9 +446,8 @@ q('#fileFence').onchange=async e=>{
   }catch{ toast('Failed to read GeoJSON'); }
   e.target.value='';
 };
-q('#btnExportFences').onclick=()=> dl('geofences.geojson', JSON.stringify(geofences,null,2));
+q('#btnExportFences').onclick=()=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(geofences,null,2)],{type:'application/geo+json'})); a.download='geofences.geojson'; a.click(); URL.revokeObjectURL(a.href); };
 
-/* Manual draw/edit/delete controls */
 let editing=false, deleting=false;
 q('#btnDraw').onclick=()=>{ fenceDrawHandler.enable(); toast('Click to add vertices, double-click to finish'); };
 q('#btnEdit').onclick=()=>{
@@ -474,10 +459,10 @@ q('#btnDelete').onclick=()=>{
   else { fenceDeleteHandler.disable(); q('#btnDelete').textContent='Delete Fences'; deleting=false; }
 };
 
-/* Auto-geofence from dwell/stop clusters */
+/* Auto-fence from dwells */
 q('#btnAutoFence').onclick=()=>{
   if(!dataset){ toast('Load data first'); return; }
-  const stops = extractStops(dataset.points, /*kph*/5, /*minSec*/60);
+  const stops = extractStops(dataset.points, 5, 60);
   if(!stops.length){ toast('No dwells ≥60s found.'); return; }
   const pts = turf.featureCollection(stops.map(s=>turf.point([s.lon,s.lat])));
   const clustered = turf.clustersDbscan(pts, 0.1, {minPoints:3, units:'kilometers'});
@@ -495,10 +480,10 @@ q('#btnAutoFence').onclick=()=>{
   else { toast('No clusters found.'); }
 };
 
-/* Units toggle: update stats (and any labels) */
-q('#selUnits').onchange=(e)=>{ displayUnit=e.target.value; updateStats(dataset||{points:[],t0:0,t1:0,totalKm:0}); drawEvents(); };
+/* Units toggle */
+q('#selUnits').onchange=(e)=>{ displayUnit=e.target.value; updateStats(dataset); drawEvents(); };
 
-/* playback controls */
+/* Playback controls */
 q('#btnPlay').onclick=()=>setPlaying(true);
 q('#btnPause').onclick=()=>setPlaying(false);
 q('#selRate').onchange=e=>{rate=Number(e.target.value)||1};
@@ -509,7 +494,7 @@ q('#scrub').oninput=e=>{
 };
 window.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault(); if(q('#btnPlay').disabled) setPlaying(false); else setPlaying(true);}});
 
-/* --------- utilities for auto-fence --------- */
+/* --------- auto-fence utils --------- */
 function extractStops(points, maxKph=5, minSec=60){
   const out=[]; let i=0;
   while(i<points.length){
