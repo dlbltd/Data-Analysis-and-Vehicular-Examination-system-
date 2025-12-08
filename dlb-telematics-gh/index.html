@@ -6,7 +6,7 @@
 <title>DLB Investigations — Telematics Player</title>
 <link rel="icon" href="assets/favicon.svg" />
 
-<!-- Fallback then primary CDN links (with onerror fallback) -->
+<!-- CDN + fallback -->
 <script>
   function _cdnFallback(which){
     const alt = {
@@ -43,22 +43,31 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
   font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 .app{position:relative;height:100%}
 
-/* Map stays at the bottom */
-#map{position:absolute;inset:0;z-index:0}
+/* Map at the bottom, full viewport */
+#map{position:fixed;inset:0;z-index:0}
 
-/* Our UI above Leaflet */
-.topbar,.controls{position:absolute;z-index:4000;pointer-events:auto}
-.toast{position:absolute;z-index:5000}
-.center{position:absolute;z-index:2000;pointer-events:none}   /* lower than UI */
+/* Force Leaflet layers and controls below our UI */
+.leaflet-pane,.leaflet-control-container{z-index:1000 !important}
 
-/* Keep Leaflet controls below our UI just in case */
-.leaflet-control-container{z-index:1000 !important}
-
+/* Our UI pinned above everything */
+.topbar,.controls{position:fixed;left:0;right:0;z-index:100000;pointer-events:auto}
 .topbar{
-  inset:0 0 auto 0;display:flex;align-items:center;gap:10px;padding:10px 12px;
+  top:0;display:flex;align-items:center;gap:10px;padding:10px 12px;
   background:linear-gradient(180deg,rgba(18,24,38,.95),rgba(18,24,38,.6),transparent);
   border-bottom:1px solid #1e2433
 }
+.controls{
+  bottom:0;display:flex;align-items:center;gap:10px;padding:10px;
+  background:linear-gradient(0deg,rgba(18,24,38,.95),rgba(18,24,38,.6),transparent)
+}
+
+/* Center overlay below UI; no click-blocking */
+.center{position:fixed;inset:0;z-index:500;display:grid;place-items:center;pointer-events:none}
+.drop{pointer-events:auto;background:var(--card);border:1px dashed #2b3246;border-radius:16px;
+  padding:22px;text-align:center;max-width:560px;box-shadow:0 6px 30px rgba(0,0,0,.35)}
+.drop h2{margin:0 0 6px;font-size:18px}
+.hint{color:var(--muted);font-size:12px}
+
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.3px;margin-right:auto}
 .brand img{height:22px;width:auto;display:block}
 .badge{background:rgba(0,209,178,.15);border:1px solid rgba(0,209,178,.5);color:var(--text);
@@ -68,25 +77,13 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
 .btn.primary{background:var(--accent);color:#021314;border-color:transparent;font-weight:600}
 .btn.ghost{background:transparent}
 .btn:disabled{opacity:.55;cursor:not-allowed}
-
-.center{inset:0;display:grid;place-items:center}
-.drop{pointer-events:auto;background:var(--card);border:1px dashed #2b3246;border-radius:16px;padding:22px;text-align:center;max-width:560px;
-  box-shadow:0 6px 30px rgba(0,0,0,.35)}
-.drop h2{margin:0 0 6px;font-size:18px}
-.hint{color:var(--muted);font-size:12px}
-
-.controls{
-  inset:auto 0 0 0;display:flex;align-items:center;gap:10px;padding:10px;
-  background:linear-gradient(0deg,rgba(18,24,38,.95),rgba(18,24,38,.6),transparent)
-}
 .slider{flex:1}
 .kv{display:flex;gap:10px;align-items:center}
 .kv .chip{background:#151b29;border:1px solid #2b3246;border-radius:999px;padding:5px 9px;color:var(--muted);font-size:12px}
 .toggle{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:12px}
 
-.toast{
-  right:10px;bottom:64px;background:#1b2232;border:1px solid #2b3246;padding:10px 12px;border-radius:10px;max-width:360px;display:none
-}
+.toast{position:fixed;right:10px;bottom:64px;background:#1b2232;border:1px solid #2b3246;
+  padding:10px 12px;border-radius:10px;max-width:360px;z-index:100001;display:none}
 .small{font-size:12px;color:var(--muted)}
 </style>
 </head>
@@ -145,7 +142,7 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
 
 <script>
 /* ---------- helpers ---------- */
-const q = (s)=>document.querySelector(s);
+const q=(s)=>document.querySelector(s);
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
 const fmtHMS=ms=>{if(!isFinite(ms))return'--:--:--';const s=Math.max(0,Math.floor(ms/1000));const h=String(Math.floor(s/3600)).padStart(2,'0');const m=String(Math.floor((s%3600)/60)).padStart(2,'0');const ss=String(s%60).padStart(2,'0');return h+':'+m+':'+ss};
 const toast=(m,ms=2200)=>{const t=q('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',ms);};
@@ -154,14 +151,14 @@ const degNorm=a=>((a%360)+360)%360;
 const degDelta=(a,b)=>{let d=degNorm(b)-degNorm(a); if(d>180)d-=360; if(d<-180)d+=360; return d;};
 const HEADER_ALIASES={timestamp:['timestamp','time','date','datetime','ts','recorded_at'],lat:['lat','latitude','y'],lon:['lon','lng','long','longitude','x'],speed:['speed','speed_kmh','kph','kmh','km/h','mph','speed_mph'],event:['event','evt','flag','note','tag']};
 function parseTs(v){if(v==null||v==='')return NaN;if(typeof v==='number'){if(v>59&&v<60000){const e=new Date(Date.UTC(1899,11,30)).getTime();return e+Math.round(v*86400000);} if(v>1e9&&v<1e12)return v*1000; if(v>=1e12)return v;} const s=String(v).trim(); if(!s)return NaN; if(/^\d{10}$/.test(s))return Number(s)*1000; if(/^\d{13}$/.test(s))return Number(s); const t=Date.parse(s); return isNaN(t)?NaN:t;}
-const R=6371, toRad=d=>d*Math.PI/180, toDeg=r=>r*180/Math.PI;
-const kmBetween=(a,b)=>{const dLat=toRad(b.lat-a.lat), dLon=toRad(b.lon-a.lon); const la1=toRad(a.lat), la2=toRad(b.lat); const x=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2; return 2*R*Math.asin(Math.min(1,Math.sqrt(x)));};
-const bearing=(a,b)=>{const lat1=toRad(a.lat), lat2=toRad(b.lat), dLon=toRad(b.lon-a.lon); const y=Math.sin(dLon)*Math.cos(lat2); const x=Math.cos(lat1)*Math.cos(lat2)*Math.cos(dLon)-Math.sin(lat1)*Math.sin(lat2); return degNorm(toDeg(Math.atan2(y,x)));};
+const R=6371,toRad=d=>d*Math.PI/180,toDeg=r=>r*180/Math.PI;
+const kmBetween=(a,b)=>{const dLat=toRad(b.lat-a.lat),dLon=toRad(b.lon-a.lon);const la1=toRad(a.lat),la2=toRad(b.lat);const x=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;return 2*R*Math.asin(Math.min(1,Math.sqrt(x)));};
+const bearing=(a,b)=>{const lat1=toRad(a.lat),lat2=toRad(b.lat),dLon=toRad(b.lon-a.lon);const y=Math.sin(dLon)*Math.cos(lat2);const x=Math.cos(lat1)*Math.cos(lat2)*Math.cos(dLon)-Math.sin(lat1)*Math.sin(lat2);return degNorm(toDeg(Math.atan2(y,x)));};
 
 /* ---------- map + state ---------- */
 let map, routeLayer, eventLayer, fenceLayer, mover, trail;
 let dataset=null, geofences=null, maxSpeed=0;
-let play=false, rate=1, playMs=0, lastTs=0;  /* single source of truth */
+let play=false, rate=1, playMs=0, lastTs=0;
 
 function initMap(){
   map=L.map('map',{zoomControl:true,preferCanvas:true});
@@ -174,13 +171,7 @@ function initMap(){
   map.setView([51.5,-0.12],12);
 }
 
-/* safe init (no nested <script>) */
-try {
-  if (window.L) { initMap(); }
-  else { window.addEventListener('load', () => (window.L ? initMap() : alert('Map library blocked by network.'))); }
-} catch (e) {
-  console.error('Map init failed', e);
-}
+try{ if(window.L){initMap()} else {window.addEventListener('load',()=>window.L&&initMap())} }catch(e){console.error(e)}
 
 /* ---------- parsing + normalization ---------- */
 function buildHeaderMap(headers){const map={},lower=headers.map(h=>String(h||'').trim().toLowerCase());for(const [canon,aliases] of Object.entries(HEADER_ALIASES)){for(let i=0;i<lower.length;i++){if(aliases.includes(lower[i])){map[canon]=headers[i];break;}}}return map;}
