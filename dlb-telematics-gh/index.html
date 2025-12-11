@@ -287,7 +287,19 @@ const kphToDisplay=(kph)=> displayUnit==='mph' ? kph*MPH_PER_KPH : kph;
 const displaySuffix=()=> displayUnit==='mph' ? 'mph' : 'km/h';
 
 /* ===== map + state ===== */
-let map, routeLayer, eventLayer, mover, trail, drawnItems, fenceDrawHandler, fenceEditHandler, fenceDeleteHandler;
+/* ===== map + state ===== */
+let map,
+  routeLayer,
+  eventLayer,
+  mover,
+  trail,
+  drawnItems,
+  fenceDrawHandler,
+  fenceEditHandler,
+  fenceDeleteHandler,
+  stopsLayer,
+  gapLayer,
+  impactWindowLayer;
 let dataset=null, geofences={type:"FeatureCollection",features:[]}, maxSpeedKph=0;
 let play=false, rate=1, playMs=0, lastTs=0;
 let eventsIndex=[]; let summaryCache=null;
