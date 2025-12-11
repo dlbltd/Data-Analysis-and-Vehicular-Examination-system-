@@ -294,15 +294,23 @@ let eventsIndex=[]; let summaryCache=null;
 
 /* init map */
 function initMap(){
-  map=L.map('map',{zoomControl:true,preferCanvas:true});
- // DLB Dark Mode Tile Layer (MapTiler Dark with DLB tint)
+ map = L.map('map', { zoomControl: true, preferCanvas: true });
+
+// DLB Dark Mode Tile Layer (MapTiler Dark with DLB tint)
 const dlbTiles = L.tileLayer(
   "https://api.maptiler.com/maps/darkmatter/{z}/{x}/{y}.png?key=a2JDQ0YAGSbsN4Z3rcbn",
   {
-    attribution:
-      '&copy; <a href="https://www.maptiler.com/copyright/" target="_blank">MapTiler</a> &copy; OpenStreetMap contributors',
     tileSize: 512,
-    zoomOffset: -1
+    zoomOffset: -1,
+    crossOrigin: true,
+    attribution:
+      '&copy; <a href="https://www.maptiler.com/copyright/" target="_blank">MapTiler</a> ' +
+      '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>'
+  }
+).addTo(map);
+
+// Optional DLB visual tint
+dlbTiles.getContainer().style.filter = "brightness(0.75) saturate(1.15)";
   }
   routeLayer=L.layerGroup().addTo(map);
   eventLayer=L.layerGroup().addTo(map);
