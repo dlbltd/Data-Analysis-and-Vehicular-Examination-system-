@@ -1,3 +1,16 @@
+// --- Prevent browser favicon 404 errors programmatically ---
+(function suppressFavicon404() {
+    const link1 = document.createElement("link");
+    link1.rel = "icon";
+    link1.href = "data:,";
+
+    const link2 = document.createElement("link");
+    link2.rel = "shortcut icon";
+    link2.href = "data:,";
+
+    document.head.appendChild(link1);
+    document.head.appendChild(link2);
+})();
 /* ============================================================
    BLOCK 1 — GLOBAL CONSTANTS & STATE (DLB Telematics Studio Pro)
    ============================================================ */
