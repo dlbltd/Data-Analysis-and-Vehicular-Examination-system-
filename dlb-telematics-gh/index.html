@@ -6,7 +6,7 @@ const q = s => document.querySelector(s);
 const toast = (msg, ms = 2200) => {
   const t = q('#toast');
   t.textContent = msg;
-  t.style.display = 'block';
+  t.style.display = 'block'; 
   setTimeout(() => (t.style.display = 'none'), ms);
 };
 
