@@ -1,726 +1,1362 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>DLB Investigations — Telematics Player</title>
-<link rel="icon" href="assets/favicon.svg" />
+/* ============================================================
+   BLOCK 1 — GLOBAL CONSTANTS & STATE (DLB Telematics Studio Pro)
+   ============================================================ */
 
-<script>
-  /* CDN fallback */
-  function _cdnFallback(which){
-    const alt = {
-      leaflet: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
-      leafletCss: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
-      leafletDraw: "https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js",
-      leafletDrawCss: "https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css",
-      papaparse: "https://unpkg.com/papaparse@5.4.1/papaparse.min.js",
-      xlsx: "https://unpkg.com/xlsx@0.20.0/dist/xlsx.full.min.js",
-      turf: "https://unpkg.com/@turf/turf@6.5.0/turf.min.js"
-    };
-    var el=document.createElement(/Css$/.test(which)?"link":"script");
-    if(/Css$/.test(which)){ el.rel="stylesheet"; el.href=alt[which]; } else { el.defer=true; el.src=alt[which]; }
-    document.head.appendChild(el);
-  }
-</script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" onerror="_cdnFallback('leafletCss')">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.css" onerror="_cdnFallback('leafletDrawCss')">
-<script defer src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" onerror="_cdnFallback('leaflet')"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.js" onerror="_cdnFallback('leafletDraw')"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js" onerror="_cdnFallback('papaparse')"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.20.0/dist/xlsx.full.min.js" onerror="_cdnFallback('xlsx')"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js" onerror="_cdnFallback('turf')"></script>
+const q = s => document.querySelector(s);
+const toast = (msg, ms = 2200) => {
+  const t = q('#toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  setTimeout(() => (t.style.display = 'none'), ms);
+};
 
-<style>
-:root{
-  /* ====== Set your exact brand hexes here ====== */
-  --brand:#1fb6ff;       /* primary blue */
-  --brand-2:#64748b;     /* secondary grey-blue */
-  --bg:#0b1220;          /* page background */
-  --card:#0f172a;        /* panels / cards */
-  --muted:#9aa4b2;       /* muted text */
-  /* ============================================ */
-  --text:#e6e9ef;
-  --ok:#22c55e; --bad:#ef4444; --warn:#eab308; --vio:#a78bfa; --crash:#ff365e;
-}
-*{box-sizing:border-box}
-html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-.app{position:relative;height:100%;isolation:isolate}
-#map{position:absolute;inset:0;z-index:0}
-.leaflet-control-container{z-index:900 !important}
+/* --- Unit Conversion --- */
+let displayUnit = "mph";
+const MPH_PER_KPH = 0.621371;
+const kphToDisplay = k => displayUnit === "mph" ? k * MPH_PER_KPH : k;
+const displaySuffix = () => displayUnit === "mph" ? "mph" : "km/h";
 
-/* Top bar */
-.topbar{
-  position:fixed;top:0;left:0;right:0;z-index:9999;
-  display:flex;align-items:center;gap:10px;padding:10px 12px;
-  background:linear-gradient(180deg,rgba(11,18,32,.95),rgba(11,18,32,.6),transparent);
-  border-bottom:1px solid #1f2937
-}
-.brand{display:flex;align-items:center;gap:10px;font-weight:700}
-.badge{background:color-mix(in oklab,var(--brand) 18%,transparent);border:1px solid color-mix(in oklab,var(--brand) 60%,#2b3246);padding:4px 8px;border-radius:999px;font-size:12px}
-.topbar-spacer{flex:1 1 auto}
-.topbar-right{display:flex;align-items:center;gap:10px}
-.risk-pill{display:none;align-items:center;gap:6px;border:1px solid #2b3246;background:#172036;border-radius:999px;padding:4px 8px;font-size:12px;color:var(--muted)}
-.risk-dot{width:10px;height:10px;border-radius:999px;background:var(--ok)}
+/* --- Map + Layers --- */
+let map;
+let routeLayer, eventLayer, stopsLayer, gapLayer, impactLayer;
+let drawnItems;               // geofence storage layer
+let mover, trail;             // animated marker + path
+let fenceDrawHandler, fenceEditHandler, fenceDeleteHandler;
 
-/* Buttons */
-.btn{background:#172036;border:1px solid #2b3246;color:var(--text);padding:8px 10px;border-radius:10px;cursor:pointer}
-.btn:hover{border-color:var(--brand-2)}
-.btn.primary{background:var(--brand);color:#021314;border-color:transparent;font-weight:600}
-.btn.ghost{background:transparent}
-.btn.small{padding:6px 8px;font-size:12px}
-.btn:disabled{opacity:.55;cursor:not-allowed}
-.sep{width:1px;height:24px;background:#2b3246;margin:0 4px}
+/* --- Dataset --- */
+let dataset = null;           // { points[], t0, t1, totalKm }
+let maxSpeedKph = 0;
 
-/* Geofence dropdown */
-.menu{position:relative}
-.menu-btn{display:inline-flex;align-items:center;gap:6px}
-.menu-pop{
-  position:absolute;top:110%;left:0;min-width:220px;z-index:11000;
-  background:var(--card);border:1px solid #2b3246;border-radius:10px;box-shadow:0 10px 24px rgba(0,0,0,.35);padding:6px;display:none
-}
-.menu-item{display:flex;width:100%;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--text);cursor:pointer}
-.menu-item:hover{background:#121a2a;border-color:#2b3246}
-.kbd{font:11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted)}
+/* --- Playback --- */
+let playing = false;
+let rate = 1;
+let playMs = 0;
+let lastTs = 0;
 
-/* Controls footer */
-.controls{
-  position:fixed;bottom:0;left:0;right:0;z-index:9998;
-  display:flex;align-items:center;gap:10px;padding:10px;
-  background:linear-gradient(0deg,rgba(11,18,32,.95),rgba(11,18,32,.6),transparent)
-}
-.slider{flex:1}
-.kv{display:flex;gap:10px;align-items:center}
-.kv .chip{background:#151b29;border:1px solid #2b3246;border-radius:999px;padding:5px 9px;color:var(--muted);font-size:12px}
-.toggle{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:12px}
+/* --- Event Index (flattened list used for event panel) --- */
+let eventsIndex = [];
 
-/* Drop overlay */
-.center{position:fixed;inset:0;z-index:9800;display:grid;place-items:center;pointer-events:none}
-.drop{pointer-events:auto;background:var(--card);border:1px dashed #2b3246;border-radius:16px;padding:22px;text-align:center;max-width:560px;box-shadow:0 6px 30px rgba(0,0,0,.35)}
-.drop h2{margin:0 0 6px;font-size:18px}
-.hint{color:var(--muted);font-size:12px}
-.small{font-size:12px;color:var(--muted)}
+/* --- Summary Cache --- */
+let summaryCache = null;
 
-/* Panels */
-.panel{position:fixed;top:58px;bottom:58px;width:360px;z-index:11000;background:var(--card);border:1px solid #2b3246;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.35);overflow:hidden}
-#summaryPanel{left:10px;display:block}
-#eventsPanel{right:10px;display:none}
-.panel header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:1px solid #2b3246}
-.panel .section{padding:10px 12px;border-bottom:1px solid #1c2333}
-.panel .row{display:flex;justify-content:space-between;gap:10px;margin:6px 0;color:var(--muted)}
-.panel .row strong{color:var(--text)}
-.panel .filters{display:flex;flex-wrap:wrap;gap:8px;padding:8px 12px;border-bottom:1px solid #2b3246}
-.list{position:absolute;inset:120px 0 0 0;overflow:auto}
-.evrow{display:flex;gap:8px;padding:8px 12px;border-bottom:1px solid #1c2333;cursor:pointer}
-.evrow:hover{background:#0f1420}
-.pill{min-width:96px;text-align:center;border-radius:999px;padding:2px 6px;font-size:12px;border:1px solid #2b3246}
-.pill.crash{color:#fff;background:rgba(255,54,94,.22);border-color:var(--crash);font-weight:700}
-.pill.brake{color:var(--bad)} .pill.accel{color:var(--ok)} .pill.corner{color:var(--vio)}
-.pill.enter{color:#38bdf8} .pill.exit{color:#f59e0b}
-.meta{color:var(--muted);font-size:12px}
+/* --- Geofence Model --- */
+let geofences = {
+  type: "FeatureCollection",
+  features: []
+};
 
-/* Risk gauge */
-.gauge{width:160px;height:160px;display:block;margin:auto}
-.glabel{font-weight:700;font-size:22px;text-anchor:middle;dominant-baseline:middle;fill:#fff}
-.gsub{font-size:12px;fill:var(--muted)}
+/* --- Helpers: Maths & Geo --- */
+const toRad = d => d * Math.PI / 180;
+const toDeg = r => r * 180 / Math.PI;
+const degNorm = a => ((a % 360) + 360) % 360;
 
-/* Toast */
-.toast{position:fixed;right:10px;bottom:64px;background:#172036;border:1px solid #2b3246;padding:10px 12px;border-radius:10px;max-width:360px;z-index:12000;display:none}
-</style>
-</head>
-<body>
-<div class="app">
-  <div id="map"></div>
-
-  <div class="topbar" role="navigation">
-    <div class="brand" title="Investigate a Different Way">
-      <span>DLB Investigations</span>
-      <span class="badge">Telematics Player</span>
-    </div>
-
-    <button id="btnUpload" class="btn" aria-label="Upload CSV/XLSX">Upload CSV/XLSX</button>
-    <button id="btnDemo" class="btn">Demo</button>
-
-    <div class="menu" id="fenceMenu">
-      <button id="btnFenceMenu" class="btn menu-btn" aria-haspopup="true" aria-expanded="false">Geofences ▾</button>
-      <div id="menuPop" class="menu-pop" role="menu" aria-labelledby="btnFenceMenu">
-        <button class="menu-item" data-action="draw"   role="menuitem">Draw fence<span class="kbd">D</span></button>
-        <button class="menu-item" data-action="edit"   role="menuitem">Edit / Save</button>
-        <button class="menu-item" data-action="delete" role="menuitem">Delete / Done</button>
-        <hr style="border:none;border-top:1px solid #1e2636;margin:6px 4px">
-        <button class="menu-item" data-action="auto"   role="menuitem">Auto-Fence (dwells)</button>
-        <button class="menu-item" data-action="import" role="menuitem">Import GeoJSON</button>
-        <button class="menu-item" data-action="export" role="menuitem">Export GeoJSON</button>
-      </div>
-    </div>
-
-    <button id="btnSummaryPanel" class="btn">Summary</button>
-    <button id="btnEventsPanel" class="btn">Events</button>
-    <button id="btnExportEvents" class="btn">Export Events</button>
-    <button id="btnExportSummary" class="btn">Export Summary</button>
-
-    <label class="toggle" style="gap:8px;margin-left:8px">
-      Units
-      <select id="selUnits" class="btn">
-        <option value="mph" selected>MPH</option>
-        <option value="kph">KPH</option>
-      </select>
-    </label>
-
-    <div class="topbar-spacer"></div>
-
-    <div id="riskBadge" class="risk-pill" aria-live="polite">
-      <span class="risk-dot" id="riskDot"></span>
-      <span id="riskText">Risk: --</span>
-    </div>
-
-    <div class="topbar-right">
-      <img src="assets/logo.svg" alt="DLB Investigations" style="height:24px;width:auto;opacity:.95" />
-    </div>
-
-    <input id="fileData" type="file" accept=".csv,.xlsx,.xls" hidden />
-    <input id="fileFence" type="file" accept=".geojson,.json" hidden />
-  </div>
-
-  <div class="center" id="centerBox">
-    <div class="drop" id="drop">
-      <h2>Drop your telematics file</h2>
-      <div class="hint">CSV/XLSX with <code>timestamp, lat, lon, speed</code>. Auto-plays.</div>
-      <div style="margin-top:10px;display:flex;gap:8px;justify-content:center">
-        <button id="btnPick" class="btn primary">Choose file</button>
-        <button id="btnQuickDemo" class="btn">Use demo</button>
-      </div>
-      <div class="small" style="margin-top:8px;">Optional: use the Geofences menu for zones</div>
-    </div>
-  </div>
-
-  <aside id="summaryPanel" class="panel">
-    <header>
-      <div>
-        <strong>Summary & Risk</strong>
-        <div class="small" id="sumSub">Load data to analyze</div>
-      </div>
-      <button id="btnCloseSummary" class="btn small">Close</button>
-    </header>
-    <div class="section" style="text-align:center">
-      <svg class="gauge" viewBox="0 0 120 120" aria-label="Risk gauge">
-        <circle cx="60" cy="60" r="50" fill="none" stroke="#1f2937" stroke-width="14"></circle>
-        <circle id="gArc" cx="60" cy="60" r="50" fill="none" stroke="var(--warn)" stroke-linecap="round"
-                stroke-width="14" stroke-dasharray="0 314" transform="rotate(-90 60 60)"></circle>
-        <text id="gScore" x="60" y="56" class="glabel">0</text>
-        <text id="gBand"  x="60" y="74" class="gsub">LOW</text>
-      </svg>
-    </div>
-    <div class="section">
-      <div class="row"><span>Distance</span><strong id="sDist">0.00 km</strong></div>
-      <div class="row"><span>Duration</span><strong id="sDur">00:00:00</strong></div>
-      <div class="row"><span>Avg / Max Speed</span><strong id="sSpeed">0/0 mph</strong></div>
-      <div class="row"><span>Max Accel / Decel (g)</span><strong id="sGs">0.00 / 0.00</strong></div>
-    </div>
-    <div class="section">
-      <div class="row"><span>Crashes</span><strong id="cCrash">0</strong></div>
-      <div class="row"><span>Harsh Brakes</span><strong id="cBrake">0</strong></div>
-      <div class="row"><span>Hard Accels</span><strong id="cAccel">0</strong></div>
-      <div class="row"><span>Hard Corners</span><strong id="cCorner">0</strong></div>
-      <div class="small" id="riskExplain" style="margin-top:8px;color:var(--muted)"></div>
-    </div>
-  </aside>
-
-  <aside id="eventsPanel" class="panel" aria-hidden="true" style="display:none;right:10px;">
-    <header>
-      <div>
-        <strong>Events</strong>
-        <div class="small" id="evStats">0 total</div>
-      </div>
-      <button id="btnClosePanel" class="btn small">Close</button>
-    </header>
-    <div class="filters">
-      <label><input type="checkbox" id="fCrash" checked> Crash</label>
-      <label><input type="checkbox" id="fBrake" checked> Harsh Brake</label>
-      <label><input type="checkbox" id="fAccel" checked> Hard Accel</label>
-      <label><input type="checkbox" id="fCorner" checked> Hard Corner</label>
-      <label><input type="checkbox" id="fEnter" checked> Enter</label>
-      <label><input type="checkbox" id="fExit"  checked> Exit</label>
-    </div>
-    <div id="evList" class="list" role="list"></div>
-  </aside>
-
-  <div class="controls">
-    <button id="btnPlay" class="btn primary" disabled>Play</button>
-    <button id="btnPause" class="btn" disabled>Pause</button>
-    <input id="scrub" class="slider" type="range" min="0" max="1000" value="0" disabled />
-    <span id="tCur" class="kv chip" style="display:none"></span>
-    <div class="kv">
-      <span class="chip" id="statDist">0.00 km</span>
-      <span class="chip" id="statDur">00:00:00</span>
-      <span class="chip" id="statSpeed">0/0 mph</span>
-    </div>
-    <label class="toggle"><input id="chkFollow" type="checkbox" checked /> Follow</label>
-    <label class="toggle"><input id="chkEvents" type="checkbox" checked /> Events</label>
-    <select id="selRate" class="btn">
-      <option value="0.5">0.5×</option>
-      <option value="1" selected>1×</option>
-      <option value="2">2×</option>
-      <option value="5">5×</option>
-      <option value="10">10×</option>
-    </select>
-  </div>
-
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
-</div>
-
-<script>
-/* ===== helpers ===== */
-const q=(s)=>document.querySelector(s);
-const toast=(m,ms=2200)=>{const t=q('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',ms);};
-const fmtHMS=ms=>{if(!isFinite(ms))return'--:--:--';const s=Math.max(0,Math.floor(ms/1000));const h=String(Math.floor(s/3600)).padStart(2,'0');const m=String(Math.floor((s%3600)/60)).padStart(2,'0');const ss=String(s%60).padStart(2,'0');return h+':'+m+':'+ss};
-const speedToColor=(s,m=100)=>{const p=Math.min(1,Math.max(0,(s||0)/(m||1)));const h=210-210*p;return `hsl(${h},80%,55%)`};
-const degNorm=a=>((a%360)+360)%360;
-const degDelta=(a,b)=>{let d=degNorm(b)-degNorm(a); if(d>180)d-=360; if(d<-180)d+=360; return d;};
-const HEADER_ALIASES={timestamp:['timestamp','time','date','datetime','ts','recorded_at'],lat:['lat','latitude','y'],lon:['lon','lng','long','longitude','x'],speed:['speed','speed_kmh','kph','kmh','km/h','mph','speed_mph'],event:['event','evt','flag','note','tag']};
-function parseTs(v){if(v==null||v==='')return NaN;if(typeof v==='number'){if(v>59&&v<60000){const e=new Date(Date.UTC(1899,11,30)).getTime();return e+Math.round(v*86400000);} if(v>1e9&&v<1e12)return v*1000; if(v>=1e12)return v;} const s=String(v).trim(); if(!s)return NaN; if(/^\d{10}$/.test(s))return Number(s)*1000; if(/^\d{13}$/.test(s))return Number(s); const t=Date.parse(s); return isNaN(t)?NaN:t;}
-const R=6371,toRad=d=>d*Math.PI/180,toDeg=r=>r*180/Math.PI;
-const kmBetween=(a,b)=>{const dLat=toRad(b.lat-a.lat), dLon=toRad(b.lon-a.lon); const la1=toRad(a.lat), la2=toRad(b.lat); const x=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2; return 2*R*Math.asin(Math.min(1,Math.sqrt(x)));};
-const bearing=(a,b)=>{const lat1=toRad(a.lat), lat2=toRad(b.lat), dLon=toRad(b.lon-a.lon); const y=Math.sin(dLon)*Math.cos(lat2); const x=Math.cos(lat1)*Math.cos(lat2)*Math.cos(dLon)-Math.sin(lat1)*Math.sin(lat2); return degNorm(toDeg(Math.atan2(y,x)));};
-const MPH_PER_KPH=0.621371; let displayUnit='mph';
-const kphToDisplay=(kph)=> displayUnit==='mph' ? kph*MPH_PER_KPH : kph;
-const displaySuffix=()=> displayUnit==='mph' ? 'mph' : 'km/h';
-
-/* ===== map + state ===== */
-/* ===== map + state ===== */
-let map,
-  routeLayer,
-  eventLayer,
-  mover,
-  trail,
-  drawnItems,
-  fenceDrawHandler,
-  fenceEditHandler,
-  fenceDeleteHandler,
-  stopsLayer,
-  gapLayer,
-  impactWindowLayer;
-let dataset=null, geofences={type:"FeatureCollection",features:[]}, maxSpeedKph=0;
-let play=false, rate=1, playMs=0, lastTs=0;
-let eventsIndex=[]; let summaryCache=null;
-
-/* init map */
-/* ===== map + state ===== */
-let map,
-  routeLayer,
-  eventLayer,
-  mover,
-  trail,
-  drawnItems,
-  fenceDrawHandler,
-  fenceEditHandler,
-  fenceDeleteHandler,
-  stopsLayer,
-  gapLayer,
-  impactWindowLayer;
-}
-function syncFencesFromLayers(){
-  geofences.features=[]; drawnItems.eachLayer(l=>{ const gj=l.toGeoJSON(); gj.properties=gj.properties||{}; if(!gj.properties.name) gj.properties.name='Fence'; geofences.features.push(gj); });
-  persistFences(); drawEvents(); buildEventIndex(); updateSummaryUI(); toast('Fences updated.');
-}
-try{ if(window.L){initMap();} else {window.addEventListener('load',()=>window.L&&initMap());} }catch(e){console.error('Map init failed',e);}
-
-/* parsing + normalization */
-function buildHeaderMap(headers){const map={},lower=headers.map(h=>String(h||'').trim().toLowerCase());for(const [canon,aliases] of Object.entries(HEADER_ALIASES)){for(let i=0;i<lower.length;i++){if(aliases.includes(lower[i])){map[canon]=headers[i];break;}}}return map;}
-function normalizeRows(rows){
-  if(!rows.length) return {points:[],t0:NaN,t1:NaN,totalKm:0};
-  const hm=buildHeaderMap(Object.keys(rows[0])); const pts=[];
-  for(const r of rows){
-    const lat=Number(r[hm.lat]); const lon=Number(r[hm.lon]);
-    if(!isFinite(lat)||Math.abs(lat)>90)continue; if(!isFinite(lon)||Math.abs(lon)>180)continue;
-    let sp=r[hm.speed]; sp=(sp==null||sp==='')?NaN:Number(sp);
-    const mphHeader=/mph/.test((hm.speed||'').toLowerCase()); if(isFinite(sp)&&mphHeader) sp*=1.609344;
-    const t=parseTs(r[hm.timestamp]);
-    const evRaw=String(r[hm.event]??'').toLowerCase().trim(); const evs=evRaw?evRaw.split(/[;,\s]+/).filter(Boolean):[];
-    pts.push({t,lat,lon,speedKph:isFinite(sp)?sp:NaN,events:evs});
-  }
-  if(!pts.length) return {points:[],t0:NaN,t1:NaN,totalKm:0};
-  if(pts.every(p=>isNaN(p.t))){const base=Date.now(); pts.forEach((p,i)=>p.t=base+i*1000);}
-  pts.sort((a,b)=>a.t-b.t);
-  for(let i=1;i<pts.length;i++){
-    const a=pts[i-1], b=pts[i];
-    b.km=kmBetween(a,b);
-    b.heading=bearing(a,b);
-    const dt=Math.max(0.001,(b.t-a.t)/1000);
-    b.turnRate=Math.abs(degDelta(a.heading??b.heading,b.heading))/dt;
-    const v1=((isFinite(a.speedKph)?a.speedKph:0))/3.6, v2=((isFinite(b.speedKph)?b.speedKph:0))/3.6;
-    b.acc=(v2-v1)/dt;
-  }
-  for(let i=0;i<pts.length;i++){
-    if(!isFinite(pts[i].speedKph)){
-      let L=i-1,R=i+1,ls=null,rs=null;
-      while(L>=0 && !isFinite(pts[L].speedKph)) L--;
-      while(R<pts.length && !isFinite(pts[R].speedKph)) R++;
-      if(L>=0) ls=pts[L].speedKph; if(R<pts.length) rs=pts[R].speedKph;
-      pts[i].speedKph=(isFinite(ls)&&isFinite(rs))?(ls+rs)/2:(isFinite(ls)?ls:(isFinite(rs)?rs:0));
-    }
-  }
-  maxSpeedKph=pts.reduce((m,p)=>Math.max(m,p.speedKph||0),0);
-  const t0=pts[0].t, t1=pts[pts.length-1].t, totalKm=pts.reduce((s,p)=>s+(p.km||0),0);
-  return {points:pts,t0,t1,totalKm};
+/* Haversine distance (km) */
+function kmBetween(a, b) {
+  const R = 6371;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const la1 = toRad(a.lat), la2 = toRad(b.lat);
+  const x = Math.sin(dLat/2)**2 +
+            Math.cos(la1) * Math.cos(la2) * Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(x)));
 }
 
-/* driving & fence events */
-function detectDrivingEvents(ds){
-  const THR={accelHard:3.0, brakeHarsh:-4.5, crash:-7.5, turnRateHard:45, minCornerSpeedKph:32};
-  for(const p of ds.points){p.events=(p.events||[]).filter(e=>!/^corner|accel|brake|accel_hard|brake_harsh|corner_hard|crash$/.test(e));}
-  for(let i=1;i<ds.points.length;i++){
-    const p=ds.points[i], spK=p.speedKph||0, tr=p.turnRate||0, a=p.acc??0;
-    if(a>=THR.accelHard) p.events.push('accel_hard');
-    if(a<=THR.brakeHarsh) p.events.push('brake_harsh');
-    if(a<=THR.crash) p.events.push('crash');   /* critical */
-    if(spK>=THR.minCornerSpeedKph && tr>=THR.turnRateHard) p.events.push('corner_hard');
-  }
-}
-function detectFenceEvents(ds){
-  if(!geofences.features.length) return;
-  const polys=geofences.features.filter(f=>f.geometry&&/Polygon|MultiPolygon/.test(f.geometry.type));
-  if(!polys.length) return;
-  for(let i=1;i<ds.points.length;i++){
-    const a=ds.points[i-1], b=ds.points[i];
-    const pa=turf.point([a.lon,a.lat]), pb=turf.point([b.lon,b.lat]);
-    for(const f of polys){
-      const name=(f.properties&&f.properties.name)||'Fence';
-      const ina=turf.booleanPointInPolygon(pa,f), inb=turf.booleanPointInPolygon(pb,f);
-      if(!ina && inb) b.events.push('enter:'+name);
-      if(ina && !inb) b.events.push('exit:'+name);
-    }
-  }
+/* Bearing (degrees) */
+function bearing(a, b) {
+  const lat1 = toRad(a.lat), lat2 = toRad(b.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1)*Math.cos(lat2) - Math.sin(lat1)*Math.sin(lat2)*Math.cos(dLon);
+  return degNorm(toDeg(Math.atan2(y, x)));
 }
 
-/* draw */
-function drawRoute(ds){
-  routeLayer.clearLayers(); eventLayer.clearLayers();
-  const pts=ds.points; if(pts.length<2) return;
-  for(let i=1;i<pts.length;i++){
-    const a=pts[i-1], b=pts[i]; const s=((a.speedKph||0)+(b.speedKph||0))/2;
-    L.polyline([[a.lat,a.lon],[b.lat,b.lon]],{weight:5,opacity:.6,color:speedToColor(s,maxSpeedKph)}).addTo(routeLayer);
-  }
-  const latlngs=pts.map(p=>[p.lat,p.lon]);
-  mover.setLatLng(latlngs[0]); trail.setLatLngs([latlngs[0]]);
-  map.fitBounds(latlngs,{padding:[20,20]});
-  drawEvents();
-}
-function drawEvents(){
-  eventLayer.clearLayers(); if(!dataset) return;
-  for(const p of dataset.points){
-    const ll=[p.lat,p.lon]; const evs=p.events||[];
-    if(evs.includes('crash')){
-      L.circleMarker(ll,{radius:10,color:'var(--crash)',weight:3,fillOpacity:.9}).bindTooltip(new Date(p.t).toLocaleString()+' — CRASH').addTo(eventLayer);
-    }
-    if(!q('#chkEvents').checked) continue;
-    for(const ev of evs){
-      if(ev==='crash') continue;
-      let col='#9ca3af', label=prettyLabel(ev);
-      if(ev==='accel_hard') col='var(--ok)';
-      if(ev==='brake_harsh') col='var(--bad)';
-      if(ev==='corner_hard') col='var(--vio)';
-      if(/^enter:/.test(ev)) col='#38bdf8';
-      if(/^exit:/.test(ev))  col='#f59e0b';
-      L.circleMarker(ll,{radius:6,color:col,weight:2,fillOpacity:.9}).bindTooltip(new Date(p.t).toLocaleString()+' — '+label).addTo(eventLayer);
-    }
-  }
-}
+/* Deceleration / Acceleration colour system */
+const speedToColor = (s, max) => {
+  const p = Math.min(1, Math.max(0, (s||0) / (max||1)));
+  const h = 210 - 210 * p;
+  return `hsl(${h},80%,55%)`;
+};
+/* ============================================================
+   BLOCK 2 — MAP ENGINE (DLB Telematics Studio Pro)
+   ============================================================ */
 
-/* fences */
-function renderFences(){drawnItems.clearLayers(); const gjl=L.geoJSON(geofences,{style:()=>({color:'#94a3b8',weight:2,fillOpacity:.08})}); gjl.eachLayer(l=>{ if(l.feature&&l.feature.properties) l.properties=l.feature.properties; drawnItems.addLayer(l); });}
-function persistFences(){try{localStorage.setItem('dlb.geofences.v1',JSON.stringify(geofences));}catch{}}
+function initMap() {
 
-/* file / export */
-async function parseFile(file){
-  const ext=(file.name.split('.').pop()||'').toLowerCase();
-  if(ext==='csv'){const text=await file.text(); const parsed=Papa.parse(text,{header:true,dynamicTyping:true,skipEmptyLines:true}); return parsed.data;}
-  if(ext==='xlsx'||ext==='xls'){const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; return XLSX.utils.sheet_to_json(ws,{defval:''});}
-  throw new Error('Unsupported file');
-}
-function dl(name, content, type='text/csv'){const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type})); a.download=name; a.click(); URL.revokeObjectURL(a.href);}
-
-/* dataset apply */
-function applyDataset(ds){
-  dataset=ds; detectDrivingEvents(ds); detectFenceEvents(ds);
-  drawRoute(ds); updateStats(ds); buildEventIndex(); updateSummaryUI();
-  q('#btnPlay').disabled=false; q('#btnPause').disabled=false; q('#scrub').disabled=false;
-  q('#centerBox').style.display='none'; q('#tCur').style.display='inline-block';
-  q('#scrub').value=0; playMs=ds.t0; lastTs=0;
-}
-
-/* stats */
-function updateStats(ds){
-  if(!ds||!ds.points||!ds.points.length){ q('#statDist').textContent='0.00 km'; q('#statDur').textContent='00:00:00'; q('#statSpeed').textContent='0/0 '+displaySuffix(); return; }
-  const dur=ds.t1-ds.t0;
-  const avgKph=ds.points.reduce((s,p)=>s+(p.speedKph||0),0)/ds.points.length;
-  q('#statDist').textContent=`${ds.totalKm.toFixed(2)} km`;
-  q('#statDur').textContent=fmtHMS(dur);
-  q('#statSpeed').textContent=`${kphToDisplay(avgKph).toFixed(0)}/${kphToDisplay(maxSpeedKph).toFixed(0)} ${displaySuffix()}`;
-}
-
-/* event list + export */
-function prettyLabel(ev){
-  if(ev==='crash') return 'CRASH';
-  if(ev==='accel_hard') return 'Hard Accel';
-  if(ev==='brake_harsh') return 'Harsh Brake';
-  if(ev==='corner_hard') return 'Hard Corner';
-  if(/^enter:/.test(ev)) return ev.replace(/^enter:/,'Enter: ');
-  if(/^exit:/.test(ev))  return ev.replace(/^exit:/,'Exit: ');
-  return ev;
-}
-function typeOf(ev){
-  if(ev==='crash') return 'crash';
-  if(ev==='accel_hard') return 'accel';
-  if(ev==='brake_harsh') return 'brake';
-  if(ev==='corner_hard') return 'corner';
-  if(/^enter:/.test(ev)) return 'enter';
-  if(/^exit:/.test(ev))  return 'exit';
-  return 'other';
-}
-function buildEventIndex(){
-  eventsIndex=[];
-  if(!dataset||!dataset.points){ renderEventList(); return; }
-  dataset.points.forEach((p,i)=>{
-    (p.events||[]).forEach(ev=>{
-      eventsIndex.push({idx:i,t:p.t,iso:new Date(p.t).toISOString(),lat:p.lat,lon:p.lon,speedKph:p.speedKph||0,acc:isFinite(p.acc)?p.acc:0,type:typeOf(ev),label:prettyLabel(ev),raw:ev});
-    });
+  /* -------------------------------
+     1. Create Map Instance
+     ------------------------------- */
+  map = L.map("map", {
+    zoomControl: true,
+    preferCanvas: true,
+    maxZoom: 20,
+    minZoom: 2
   });
-  eventsIndex.sort((a,b)=>a.t-b.t);
-  renderEventList();
-}
-function filterFlags(){return{crash:q('#fCrash').checked,brake:q('#fBrake').checked,accel:q('#fAccel').checked,corner:q('#fCorner').checked,enter:q('#fEnter').checked,exit:q('#fExit').checked};}
-function renderEventList(){
-  const list=q('#evList'); if(!list) return; list.innerHTML='';
-  const flags=filterFlags(); const filtered=eventsIndex.filter(e=>flags[e.type]??true);
-  q('#evStats').textContent=`${eventsIndex.length} total · ${filtered.length} shown`;
-  for(const e of filtered){
-    const row=document.createElement('div'); row.className='evrow'; row.setAttribute('role','listitem');
-    const pill=document.createElement('div'); pill.className='pill '+(e.type==='crash'?'crash':e.type); pill.textContent=e.label;
-    const info=document.createElement('div'); const sp=kphToDisplay(e.speedKph).toFixed(0)+' '+displaySuffix(); const g=(Math.abs(e.acc)/9.80665).toFixed(2)+' g';
-    info.innerHTML=`<div>${new Date(e.t).toLocaleString()}</div><div class="meta">${sp} · ${g} · ${e.lat.toFixed(5)}, ${e.lon.toFixed(5)}</div>`;
-    row.appendChild(pill); row.appendChild(info);
-    row.onclick=()=>{ setPlaying(false); const idx=findIndex(dataset.points,e.t); playMs=e.t; renderAt(idx,e.t); map.panTo([e.lat,e.lon],{animate:false}); };
-    list.appendChild(row);
+
+  /* -------------------------------
+     2. Light Basemap (DLB Product Spec)
+     ------------------------------- */
+  const baseTiles = L.tileLayer(
+    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    {
+      attribution:
+        '&copy; OpenStreetMap contributors',
+      crossOrigin: true,
+      maxNativeZoom: 19
+    }
+  ).addTo(map);
+
+  /* -------------------------------
+     3. Layer Architecture
+     ------------------------------- */
+  routeLayer        = L.layerGroup().addTo(map);
+  eventLayer        = L.layerGroup().addTo(map);
+  stopsLayer        = L.layerGroup().addTo(map);
+  gapLayer          = L.layerGroup().addTo(map);
+  impactLayer       = L.layerGroup().addTo(map);
+  drawnItems        = new L.FeatureGroup().addTo(map);
+
+  /* -------------------------------
+     4. Vehicle Marker + Trail
+     ------------------------------- */
+  mover = L.circleMarker([51.5, -0.12], {
+    radius: 8,
+    weight: 2,
+    color: "#ffffff",
+    fillColor: "#ffffff",
+    fillOpacity: 1
+  }).addTo(map);
+
+  trail = L.polyline([], {
+    weight: 5,
+    opacity: 0.9,
+    color: "var(--brand)"
+  }).addTo(map);
+
+  map.setView([51.5, -0.12], 12);
+
+  /* -------------------------------
+     5. Fence Drawing Tools
+     ------------------------------- */
+  fenceDrawHandler = new L.Draw.Polygon(map, {
+    shapeOptions: {
+      color: "#94a3b8",
+      weight: 2,
+      fillOpacity: 0.08
+    }
+  });
+
+  fenceEditHandler = new L.EditToolbar.Edit(map, {
+    featureGroup: drawnItems
+  });
+
+  fenceDeleteHandler = new L.EditToolbar.Delete(map, {
+    featureGroup: drawnItems
+  });
+
+  /* -------------------------------
+     6. Load Stored Geofences
+     ------------------------------- */
+  try {
+    const saved = localStorage.getItem("dlb.geofences.v1");
+    if (saved) {
+      geofences = JSON.parse(saved);
+      renderFences();
+    }
+  } catch (e) {
+    console.warn("Failed to load saved geofences:", e);
   }
-}
-function exportEventsCSV(){
-  if(!eventsIndex.length){ toast('No events to export'); return; }
-  const header=['timestamp_iso','type','label','lat','lon','speed_kph','speed_display','acc_mps2','g_force','raw'];
-  const lines=[header.join(',')];
-  for(const e of eventsIndex){
-    const speedDisp=kphToDisplay(e.speedKph).toFixed(2)+' '+displaySuffix();
-    const g=(e.acc/9.80665);
-    const vals=[e.iso,e.type,e.label.replace(/,/g,';'),e.lat.toFixed(6),e.lon.toFixed(6),(e.speedKph||0).toFixed(2),speedDisp,(e.acc||0).toFixed(3),g.toFixed(3),e.raw.replace(/,/g,';')];
-    lines.push(vals.join(','));
-  }
-  dl('events.csv', lines.join('\n'), 'text/csv');
+
+  /* -------------------------------
+     7. Fence Creation Event
+     ------------------------------- */
+  map.on(L.Draw.Event.CREATED, (e) => {
+    const layer = e.layer;
+    drawnItems.addLayer(layer);
+
+    const gj = layer.toGeoJSON();
+    const name =
+      prompt(
+        "Name this geofence:",
+        "Fence " + (geofences.features.length + 1)
+      ) ||
+      "Fence " + (geofences.features.length + 1);
+
+    gj.properties = { ...(gj.properties || {}), name };
+    geofences.features.push(gj);
+
+    persistFences();
+    if (dataset) {
+      detectFenceEvents(dataset);
+      buildEventIndex();
+      drawEvents();
+      updateSummaryUI();
+    }
+
+    toast("Fence added: " + name);
+  });
+
+  /* -------------------------------
+     8. Fence Edit/Delete Sync
+     ------------------------------- */
+  map.on(L.Draw.Event.EDITED, syncFencesFromLayers);
+  map.on(L.Draw.Event.DELETED, syncFencesFromLayers);
+
+  /* Map initialisation complete */
+  console.log("DLB Map Engine: READY");
 }
 
-/* playback */
-function setPlaying(p){play=p; q('#btnPlay').disabled=p; q('#btnPause').disabled=!p; if(p) requestAnimationFrame(tick);}
-function tick(ts){
-  if(!play||!dataset) return;
-  if(!lastTs) lastTs=ts;
-  const dt=ts-lastTs; lastTs=ts; playMs+=dt*rate;
-  if(playMs>=dataset.t1){playMs=dataset.t1; setPlaying(false);}
-  const idx=findIndex(dataset.points, playMs);
+
+/* ============================================================
+   FENCE SYNC HANDLER
+   ============================================================ */
+function syncFencesFromLayers() {
+  geofences.features = [];
+
+  drawnItems.eachLayer((layer) => {
+    const gj = layer.toGeoJSON();
+    if (!gj.properties) gj.properties = {};
+    if (!gj.properties.name)
+      gj.properties.name =
+        "Fence " + (geofences.features.length + 1);
+
+    geofences.features.push(gj);
+  });
+
+  persistFences();
+
+  if (dataset) {
+    detectFenceEvents(dataset);
+    buildEventIndex();
+    drawEvents();
+    updateSummaryUI();
+  }
+
+  toast("Fences updated.");
+}
+
+
+/* ============================================================
+   CALL INIT ON LOAD
+   ============================================================ */
+window.addEventListener("load", () => {
+  try {
+    initMap();
+  } catch (e) {
+    console.error("Map init failed:", e);
+  }
+});
+/* ============================================================
+   BLOCK 3 — DATA INGESTION + NORMALISATION
+   - Handles CSV/XLSX using PapaParse + SheetJS (XLSX)
+   - Normalises into { points, t0, t1, totalKm }
+   - Computes speed, heading, turn rate, acceleration
+   ============================================================ */
+
+/**
+ * Parse an uploaded telematics file (CSV / XLS / XLSX)
+ * Returns an array of row objects (header → value).
+ */
+async function parseFile(file) {
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+
+  if (ext === "csv") {
+    const text = await file.text();
+    const parsed = Papa.parse(text, {
+      header: true,
+      dynamicTyping: true,
+      skipEmptyLines: true
+    });
+    return parsed.data;
+  }
+
+  if (ext === "xlsx" || ext === "xls") {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(ws, { defval: "" });
+  }
+
+  throw new Error("Unsupported file type: " + ext);
+}
+
+
+/**
+ * Build a header map from various alias names.
+ * Uses HEADER_ALIASES from Block 1.
+ *
+ * e.g. { timestamp: "Timestamp", lat: "Latitude", ... }
+ */
+function buildHeaderMap(headers) {
+  const map = {};
+  const lower = headers.map((h) => String(h || "").trim().toLowerCase());
+
+  for (const [canon, aliases] of Object.entries(HEADER_ALIASES)) {
+    for (let i = 0; i < lower.length; i++) {
+      if (aliases.includes(lower[i])) {
+        map[canon] = headers[i];
+        break;
+      }
+    }
+  }
+
+  return map;
+}
+
+
+/**
+ * Normalise raw row data into a derived telematics dataset.
+ *
+ * Returns:
+ * {
+ *   points: [
+ *     {
+ *       t,          // ms since epoch
+ *       lat, lon,
+ *       speedKph,
+ *       events: [],
+ *       km,        // distance from previous point (km)
+ *       heading,   // bearing in degrees
+ *       turnRate,  // deg/s
+ *       acc        // m/s²
+ *     }, ...
+ *   ],
+ *   t0, t1,        // start/end timestamps
+ *   totalKm        // cumulative distance
+ * }
+ */
+function normalizeRows(rows) {
+  if (!rows || !rows.length) {
+    return { points: [], t0: NaN, t1: NaN, totalKm: 0 };
+  }
+
+  // Build mapping from canonical → real header names
+  const headerNames = Object.keys(rows[0]);
+  const hm = buildHeaderMap(headerNames);
+
+  if (!hm.timestamp || !hm.lat || !hm.lon || !hm.speed) {
+    console.warn("Header map incomplete:", hm);
+  }
+
+  const points = [];
+
+  for (const r of rows) {
+    const lat = Number(r[hm.lat]);
+    const lon = Number(r[hm.lon]);
+
+    // Basic sanity on coords
+    if (!isFinite(lat) || Math.abs(lat) > 90) continue;
+    if (!isFinite(lon) || Math.abs(lon) > 180) continue;
+
+    // Speed handling
+    let sp = r[hm.speed];
+    sp = (sp == null || sp === "") ? NaN : Number(sp);
+
+    // If column header contains "mph", treat as mph and convert to kph
+    const mphHeader = /mph/.test((hm.speed || "").toLowerCase());
+    if (isFinite(sp) && mphHeader) sp *= 1.609344;
+
+    // Timestamp normalisation via parseTs() from Block 1
+    const t = parseTs(r[hm.timestamp]);
+
+    // Extra event column (optional)
+    const evRaw = String(r[hm.event] ?? "").toLowerCase().trim();
+    const evs = evRaw ? evRaw.split(/[;,\s]+/).filter(Boolean) : [];
+
+    points.push({
+      t,
+      lat,
+      lon,
+      speedKph: isFinite(sp) ? sp : NaN,
+      events: evs
+    });
+  }
+
+  if (!points.length) {
+    return { points: [], t0: NaN, t1: NaN, totalKm: 0 };
+  }
+
+  // If all timestamps are NaN, synthesise 1s spacing
+  if (points.every((p) => isNaN(p.t))) {
+    const base = Date.now();
+    points.forEach((p, i) => (p.t = base + i * 1000));
+  }
+
+  // Sort by time
+  points.sort((a, b) => a.t - b.t);
+
+  // Derive distance, heading, turn rate & acceleration
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+
+    // Distance (km) using kmBetween() from Block 1
+    b.km = kmBetween(a, b);
+
+    // Heading (deg) using bearing() from Block 1
+    b.heading = bearing(a, b);
+
+    // Time delta (s)
+    const dt = Math.max(0.001, (b.t - a.t) / 1000);
+
+    // Turn rate (deg/s)
+    const prevHeading = isFinite(a.heading) ? a.heading : b.heading;
+    b.turnRate = Math.abs(degDelta(prevHeading, b.heading)) / dt;
+
+    // Acceleration (m/s²) from speedKph
+    const v1 = (isFinite(a.speedKph) ? a.speedKph : 0) / 3.6;
+    const v2 = (isFinite(b.speedKph) ? b.speedKph : 0) / 3.6;
+    b.acc = (v2 - v1) / dt;
+  }
+
+  // Interpolate missing speedKph values
+  for (let i = 0; i < points.length; i++) {
+    if (!isFinite(points[i].speedKph)) {
+      let L = i - 1,
+        R = i + 1,
+        ls = null,
+        rs = null;
+
+      while (L >= 0 && !isFinite(points[L].speedKph)) L--;
+      while (R < points.length && !isFinite(points[R].speedKph)) R++;
+
+      if (L >= 0) ls = points[L].speedKph;
+      if (R < points.length) rs = points[R].speedKph;
+
+      points[i].speedKph =
+        isFinite(ls) && isFinite(rs)
+          ? (ls + rs) / 2
+          : isFinite(ls)
+          ? ls
+          : isFinite(rs)
+          ? rs
+          : 0;
+    }
+  }
+
+  // Update global max speed for colouring
+  maxSpeedKph = points.reduce(
+    (m, p) => Math.max(m, p.speedKph || 0),
+    0
+  );
+
+  const t0 = points[0].t;
+  const t1 = points[points.length - 1].t;
+  const totalKm = points.reduce((s, p) => s + (p.km || 0), 0);
+
+  return { points, t0, t1, totalKm };
+}
+        /* ============================================================
+   BLOCK 4 — EVENT DETECTION ENGINE
+   - Crash detection (ΔV-sensitive)
+   - Harsh braking / Accel / Cornering
+   - Time-gap analysis
+   - Fence entry/exit
+   - Dwells / Stops
+   ============================================================ */
+
+
+/* ------------------------------------------------------------
+   1. Driving Behaviour Events
+   ------------------------------------------------------------ */
+function detectDrivingEvents(ds) {
+  if (!ds || !ds.points || ds.points.length < 3) return;
+
+  const pts = ds.points;
+
+  // Thresholds tuned for telematics-style data
+  const THR = {
+    accelHard: 3.0,           // m/s², about 0.30g
+    brakeHarsh: -4.5,         // m/s², about -0.45g
+    crash: -7.5,              // m/s², about -0.75g (ΔV-based)
+    turnRateHard: 45,         // deg/s
+    minCornerSpeedKph: 25,    // low-speed corners ignored
+    dwellMaxKph: 5,           // ≤5 kph = stationary
+    dwellMinSec: 60,          // ≥60s = stop/dwell
+    gapSec: 10                // ≥10s missing data = tamper/signal loss
+  };
+
+  // Reset auto-generated events
+  pts.forEach((p) => {
+    p.events = p.events.filter(
+      (e) =>
+        ![
+          "accel_hard",
+          "brake_harsh",
+          "corner_hard",
+          "crash",
+          "gap",
+          "stop"
+        ].includes(e)
+    );
+  });
+
+  /* --- Loop through points --- */
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+
+    const acc = b.acc || 0;
+    const sp = b.speedKph || 0;
+    const turn = b.turnRate || 0;
+
+    /* --- Hard Acceleration --- */
+    if (acc >= THR.accelHard) b.events.push("accel_hard");
+
+    /* --- Harsh Braking --- */
+    if (acc <= THR.brakeHarsh) b.events.push("brake_harsh");
+
+    /* --- Crash / Impact Detection (ΔV > threshold) --- */
+    if (acc <= THR.crash) b.events.push("crash");
+
+    /* --- Hard Cornering --- */
+    if (sp >= THR.minCornerSpeedKph && turn >= THR.turnRateHard)
+      b.events.push("corner_hard");
+
+    /* --- Time Gap Detection --- */
+    const dt = (b.t - a.t) / 1000;
+    if (dt >= THR.gapSec) b.events.push("gap:" + dt.toFixed(1));
+  }
+
+  /* --- After main loop, detect dwells/stops --- */
+  detectDwells(ds, THR.dwellMaxKph, THR.dwellMinSec);
+}
+
+
+/* ------------------------------------------------------------
+   2. Detect Dwells (Stops ≥ 60 seconds)
+   ------------------------------------------------------------ */
+function detectDwells(ds, maxKph = 5, minSec = 60) {
+  const pts = ds.points;
+  let i = 0;
+
+  while (i < pts.length) {
+    // Skip moving points
+    while (i < pts.length && (pts[i].speedKph || 0) > maxKph) i++;
+    if (i >= pts.length) break;
+
+    // Now in stationary zone
+    let j = i;
+    let t0 = pts[i].t;
+
+    // Continue until movement resumes
+    while (j < pts.length && (pts[j].speedKph || 0) <= maxKph) j++;
+
+    const t1 = pts[j - 1].t;
+    const durSec = (t1 - t0) / 1000;
+
+    if (durSec >= minSec) {
+      const mid = Math.floor((i + j) / 2);
+      pts[mid].events.push("stop:" + durSec.toFixed(0));
+    }
+
+    i = j + 1;
+  }
+}
+
+
+/* ------------------------------------------------------------
+   3. Geofence Entry / Exit Detection
+   ------------------------------------------------------------ */
+function detectFenceEvents(ds) {
+  if (!geofences.features.length) return;
+  const pts = ds.points;
+
+  const polys = geofences.features.filter(
+    (f) => f.geometry && /Polygon|MultiPolygon/.test(f.geometry.type)
+  );
+  if (!polys.length) return;
+
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+
+    const pa = turf.point([a.lon, a.lat]);
+    const pb = turf.point([b.lon, b.lat]);
+
+    for (const f of polys) {
+      const name = f.properties?.name || "Zone";
+      const ina = turf.booleanPointInPolygon(pa, f);
+      const inb = turf.booleanPointInPolygon(pb, f);
+
+      if (!ina && inb) b.events.push("enter:" + name);
+      if (ina && !inb) b.events.push("exit:" + name);
+    }
+  }
+}
+
+
+/* ------------------------------------------------------------
+   4. High-Level Wrapper — Called After Parsing
+   ------------------------------------------------------------ */
+function detectAllEvents(ds) {
+  detectDrivingEvents(ds);
+  detectFenceEvents(ds);
+}
+    /* ============================================================
+   BLOCK 5 — RENDERING ENGINE
+   - Route drawing (speed gradient)
+   - Event markers
+   - Crash pre-impact highlight (ΔV window)
+   - Time-gaps visualisation
+   - Dwells / stops
+   - AOI-ready hooks (future)
+   ============================================================ */
+
+
+/* ------------------------------------------------------------
+   1. Master Draw Function
+   ------------------------------------------------------------ */
+function drawAll(ds) {
+  if (!ds || !ds.points || ds.points.length < 2) return;
+
+  // Clear all layers
+  routeLayer.clearLayers();
+  eventLayer.clearLayers();
+  stopsLayer.clearLayers();
+  gapLayer.clearLayers();
+  impactLayer.clearLayers();
+
+  drawRoute(ds);
+  drawEvents(ds);
+  drawDiagnostics(ds);
+}
+
+
+/* ------------------------------------------------------------
+   2. Route Drawing (speed-based colour)
+   ------------------------------------------------------------ */
+function drawRoute(ds) {
+  const pts = ds.points;
+  if (pts.length < 2) return;
+
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+
+    const avgSpeed = ((a.speedKph || 0) + (b.speedKph || 0)) / 2;
+
+    L.polyline(
+      [
+        [a.lat, a.lon],
+        [b.lat, b.lon]
+      ],
+      {
+        weight: 5,
+        opacity: 0.85,
+        color: speedToColor(avgSpeed, maxSpeedKph)
+      }
+    ).addTo(routeLayer);
+  }
+
+  // Position vehicle at start
+  mover.setLatLng([pts[0].lat, pts[0].lon]);
+  trail.setLatLngs([[pts[0].lat, pts[0].lon]]);
+
+  // Fit view
+  const bounds = pts.map((p) => [p.lat, p.lon]);
+  map.fitBounds(bounds, { padding: [25, 25] });
+}
+
+
+/* ------------------------------------------------------------
+   3. Event Marker Layer (crash, brake, accel, corner, fence, gap)
+   ------------------------------------------------------------ */
+function drawEvents(ds) {
+  const pts = ds.points;
+
+  for (const p of pts) {
+    const evs = p.events || [];
+    const ll = [p.lat, p.lon];
+
+    /* --- Always show CRASH prominently --- */
+    if (evs.includes("crash")) {
+      L.circleMarker(ll, {
+        radius: 10,
+        weight: 3,
+        color: "var(--crash)",
+        fillColor: "var(--crash)",
+        fillOpacity: 0.9
+      })
+        .bindTooltip(
+          new Date(p.t).toLocaleString() + " — CRASH",
+          { direction: "top" }
+        )
+        .addTo(eventLayer);
+
+      continue;
+    }
+
+    /* --- Skip if events turned off --- */
+    if (!q("#chkEvents").checked) continue;
+
+    for (const ev of evs) {
+      let color = "#9ca3af";
+      let label = ev;
+
+      if (ev === "accel_hard") {
+        color = "var(--ok)";
+        label = "Hard Accel";
+      } else if (ev === "brake_harsh") {
+        color = "var(--bad)";
+        label = "Harsh Brake";
+      } else if (ev === "corner_hard") {
+        color = "var(--vio)";
+        label = "Hard Corner";
+      } else if (ev.startsWith("enter:")) {
+        color = "#38bdf8";
+        label = ev.replace("enter:", "Enter: ");
+      } else if (ev.startsWith("exit:")) {
+        color = "#f59e0b";
+        label = ev.replace("exit:", "Exit: ");
+      } else if (ev.startsWith("gap:")) {
+        color = "#f97316";
+        label = "Gap (" + ev.split(":")[1] + "s)";
+      } else if (ev.startsWith("stop:")) {
+        color = "#0ea5e9";
+        label = "Stop (" + ev.split(":")[1] + "s)";
+      }
+
+      L.circleMarker(ll, {
+        radius: 6,
+        weight: 2,
+        color,
+        fillColor: color,
+        fillOpacity: 0.9
+      })
+        .bindTooltip(
+          new Date(p.t).toLocaleString() + " — " + label,
+          { direction: "top" }
+        )
+        .addTo(eventLayer);
+    }
+  }
+}
+
+
+/* ------------------------------------------------------------
+   4. Diagnostics Layer (Gaps + Dwells)
+   ------------------------------------------------------------ */
+function drawDiagnostics(ds) {
+  const pts = ds.points;
+
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+
+    const dt = (b.t - a.t) / 1000;
+
+    /* --- Time Gap Segment --- */
+    if (dt >= 10) {
+      L.polyline(
+        [
+          [a.lat, a.lon],
+          [b.lat, b.lon]
+        ],
+        {
+          color: "#f97316",
+          weight: 7,
+          opacity: 1,
+          dashArray: "6,4"
+        }
+      )
+        .bindTooltip(`Time Gap: ${dt.toFixed(1)}s`)
+        .addTo(gapLayer);
+    }
+  }
+
+  /* --- Dwells (stops) --- */
+  for (const p of pts) {
+    const evStop = p.events.find((e) => e.startsWith("stop:"));
+    if (!evStop) continue;
+
+    const dur = evStop.split(":")[1];
+
+    L.circleMarker([p.lat, p.lon], {
+      radius: 8,
+      weight: 2,
+      color: "#38bdf8",
+      fillColor: "#0ea5e9",
+      fillOpacity: 0.85
+    })
+      .bindTooltip("Stop ~" + dur + "s")
+      .addTo(stopsLayer);
+  }
+}
+
+
+/* ------------------------------------------------------------
+   5. Crash Pre-Impact Window (5 seconds)
+   ------------------------------------------------------------ */
+function highlightCrashWindow(eventObj) {
+  if (!dataset) return;
+
+  const pts = dataset.points;
+  const tImpact = eventObj.t;
+  const windowStart = tImpact - 5000;
+
+  impactLayer.clearLayers();
+
+  const startIdx = findIndex(pts, windowStart);
+  const endIdx = findIndex(pts, tImpact);
+
+  if (endIdx <= startIdx) return;
+
+  const seg = [];
+  for (let i = startIdx; i <= endIdx; i++) {
+    seg.push([pts[i].lat, pts[i].lon]);
+  }
+
+  L.polyline(seg, {
+    weight: 8,
+    opacity: 1,
+    color: "#ff365e"
+  }).addTo(impactLayer);
+
+  /* --- ΔV Estimate (basic) --- */
+  const vA = (pts[startIdx].speedKph || 0) / 3.6;
+  const vB = (pts[endIdx].speedKph || 0) / 3.6;
+  const dV = Math.max(0, vA - vB);
+
+  toast(
+    `Pre-Impact Window (5s)\nEstimated ΔV: ${(dV * 2.23694).toFixed(1)} mph`
+  );
+}
+    /* ============================================================
+   BLOCK 6 — PLAYBACK, FILE I/O, WIRING, EXPORTS
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   1. Demo data
+   ------------------------------------------------------------ */
+function demoRows() {
+  const base = Date.now();
+  const list = [
+    { t: base + 0,     lat: 51.505, lon: -0.09,  kph: 0  },
+    { t: base + 4000,  lat: 51.506, lon: -0.088, kph: 18 },
+    { t: base + 8000,  lat: 51.507, lon: -0.086, kph: 30 },
+    { t: base + 12000, lat: 51.508, lon: -0.084, kph: 42 },
+    { t: base + 16000, lat: 51.509, lon: -0.082, kph: 50 },
+    { t: base + 22000, lat: 51.510, lon: -0.082, kph: 55 },
+    { t: base + 28000, lat: 51.511, lon: -0.083, kph: 40 },
+    { t: base + 34000, lat: 51.512, lon: -0.085, kph: 32 },
+    { t: base + 40000, lat: 51.513, lon: -0.087, kph: 24 },
+    { t: base + 46000, lat: 51.514, lon: -0.089, kph: 15 }
+  ];
+  return list.map(p => ({
+    timestamp: new Date(p.t).toISOString(),
+    lat: p.lat,
+    lon: p.lon,
+    speed: p.kph
+  }));
+}
+
+
+/* ------------------------------------------------------------
+   2. File parsing (CSV / XLSX)
+   (Uses PapaParse & XLSX which are loaded via CDN)
+   ------------------------------------------------------------ */
+const parseFile = window.parseFile || async function (file) {
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+
+  if (ext === "csv") {
+    const text = await file.text();
+    const parsed = Papa.parse(text, {
+      header: true,
+      dynamicTyping: true,
+      skipEmptyLines: true
+    });
+    return parsed.data;
+  }
+
+  if (ext === "xlsx" || ext === "xls") {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(ws, { defval: "" });
+  }
+
+  throw new Error("Unsupported file type (use CSV / XLSX).");
+};
+
+
+/* ------------------------------------------------------------
+   3. Dataset application glue
+   (normalise → events → geofences → draw → stats → UI)
+   ------------------------------------------------------------ */
+function applyDataset(ds) {
+  if (!ds || !ds.points || !ds.points.length) {
+    toast("No usable points in dataset.");
+    return;
+  }
+
+  dataset = ds;
+
+  // Draw everything
+  drawAll(ds);
+
+  // Summary / stats / indices
+  if (typeof updateStats === "function") {
+    updateStats(ds);
+  }
+  if (typeof buildEventIndex === "function") {
+    buildEventIndex();
+  }
+  if (typeof updateSummaryUI === "function") {
+    updateSummaryUI();
+  }
+
+  // Enable playback controls
+  q("#btnPlay").disabled = false;
+  q("#btnPause").disabled = false;
+  q("#scrub").disabled = false;
+  q("#tCur").style.display = "inline-block";
+
+  // Reset playback state
+  playMs = ds.t0;
+  lastTs = 0;
+  q("#scrub").value = "0";
+
+  // Hide centre overlay
+  const centreBox = q("#centerBox");
+  if (centreBox) centreBox.style.display = "none";
+}
+
+
+/* ------------------------------------------------------------
+   4. Playback engine
+   ------------------------------------------------------------ */
+const findIndex = window.findIndex || function (points, t) {
+  let lo = 0,
+    hi = points.length - 1,
+    mid;
+
+  while (lo <= hi) {
+    mid = (lo + hi) >> 1;
+    if (points[mid].t === t) return mid;
+    if (points[mid].t < t) lo = mid + 1;
+    else hi = mid - 1;
+  }
+
+  return Math.max(0, Math.min(points.length - 2, lo - 1));
+};
+
+function setPlaying(isPlaying) {
+  play = isPlaying;
+  q("#btnPlay").disabled = isPlaying || !dataset;
+  q("#btnPause").disabled = !isPlaying || !dataset;
+
+  if (isPlaying && dataset) {
+    lastTs = 0;
+    requestAnimationFrame(tick);
+  }
+}
+
+function tick(ts) {
+  if (!play || !dataset) return;
+
+  if (!lastTs) lastTs = ts;
+  const dt = ts - lastTs;
+  lastTs = ts;
+
+  playMs += dt * rate;
+  if (playMs >= dataset.t1) {
+    playMs = dataset.t1;
+    setPlaying(false);
+  }
+
+  const idx = findIndex(dataset.points, playMs);
   renderAt(idx, playMs);
-  if(play) requestAnimationFrame(tick);
-}
-function findIndex(points,t){let lo=0,hi=points.length-1,mid=0;while(lo<=hi){mid=(lo+hi)>>1; if(points[mid].t===t)return mid; if(points[mid].t<t)lo=mid+1; else hi=mid-1;} return Math.max(0,Math.min(points.length-2,lo-1));}
-function lerp(a,b,p){return a+(b-a)*p;}
-function renderAt(idx,t){
-  const pts=dataset.points,a=pts[idx],b=pts[Math.min(idx+1,pts.length-1)];
-  const span=Math.max(1,b.t-a.t); const p=Math.min(1,Math.max(0,(t-a.t)/span));
-  const lat=lerp(a.lat,b.lat,p), lon=lerp(a.lon,b.lon,p);
-  mover.setLatLng([lat,lon]); mover.setStyle({color:speedToColor(lerp(a.speedKph,b.speedKph,p),maxSpeedKph)});
-  if(q('#chkFollow').checked) map.panTo([lat,lon],{animate:false});
-  const upto=pts.slice(0,idx+1).map(p=>[p.lat,p.lon]); if(upto.length){upto.push([lat,lon]); trail.setStyle({color:'var(--brand)'}); trail.setLatLngs(upto);}
-  const frac=(t-dataset.t0)/(dataset.t1-dataset.t0); q('#scrub').value=String(Math.round(frac*1000));
-  q('#tCur').textContent=new Date(t).toLocaleTimeString();
+
+  if (play) requestAnimationFrame(tick);
 }
 
-/* demo + drop */
-function demoRows(){const base=Date.now(); const list=[
-  {t:base+0,lat:51.505,lon:-0.09,kph:0},{t:base+4000,lat:51.506,lon:-0.088,kph:18},
-  {t:base+8000,lat:51.507,lon:-0.086,kph:30},{t:base+12000,lat:51.508,lon:-0.084,kph:42},
-  {t:base+16000,lat:51.509,lon:-0.082,kph:50},{t:base+22000,lat:51.510,lon:-0.082,kph:55},
-  {t:base+28000,lat:51.511,lon:-0.083,kph:40},{t:base+34000,lat:51.512,lon:-0.085,kph:32},
-  {t:base+40000,lat:51.513,lon:-0.087,kph:24},{t:base+46000,lat:51.514,lon:-0.089,kph:15}
-]; return list.map(p=>({timestamp:new Date(p.t).toISOString(), lat:p.lat, lon:p.lon, speed:p.kph}));}
-function enableDrop(){
-  const box=document.getElementById('drop');
-  ['dragover','dragenter'].forEach(ev=>box.addEventListener(ev,e=>{e.preventDefault(); box.style.borderColor='var(--brand)'}));
-  ['dragleave','drop'].forEach(ev=>box.addEventListener(ev,()=>{box.style.borderColor='#2b3246'}));
-  box.addEventListener('drop',async e=>{
-    e.preventDefault(); const f=e.dataTransfer.files?.[0]; if(!f) return;
-    const rows=await parseFile(f); const ds=normalizeRows(rows); applyDataset(ds); setPlaying(true);
+function lerp(a, b, p) {
+  return a + (b - a) * p;
+}
+
+function renderAt(idx, t) {
+  if (!dataset || !dataset.points.length) return;
+
+  const pts = dataset.points;
+  const a = pts[idx];
+  const b = pts[Math.min(idx + 1, pts.length - 1)];
+
+  const span = Math.max(1, b.t - a.t);
+  const p = Math.min(1, Math.max(0, (t - a.t) / span));
+
+  const lat = lerp(a.lat, b.lat, p);
+  const lon = lerp(a.lon, b.lon, p);
+
+  // Move vehicle
+  mover.setLatLng([lat, lon]);
+  mover.setStyle({
+    color: speedToColor(lerp(a.speedKph || 0, b.speedKph || 0, p), maxSpeedKph)
+  });
+
+  // Follow map if enabled
+  if (q("#chkFollow").checked) {
+    map.panTo([lat, lon], { animate: false });
+  }
+
+  // Trail up to this point
+  const upto = pts.slice(0, idx + 1).map(pt => [pt.lat, pt.lon]);
+  if (upto.length) {
+    upto.push([lat, lon]);
+    trail.setStyle({ color: "var(--brand)" });
+    trail.setLatLngs(upto);
+  }
+
+  // Scrubber and time
+  const frac = (t - dataset.t0) / (dataset.t1 - dataset.t0 || 1);
+  q("#scrub").value = String(Math.round(frac * 1000));
+  q("#tCur").textContent = new Date(t).toLocaleTimeString();
+}
+
+
+/* ------------------------------------------------------------
+   5. Drag-and-drop zone
+   ------------------------------------------------------------ */
+function enableDrop() {
+  const box = document.getElementById("drop");
+  if (!box) return;
+
+  ["dragover", "dragenter"].forEach(ev =>
+    box.addEventListener(ev, e => {
+      e.preventDefault();
+      box.style.borderColor = "var(--brand)";
+    })
+  );
+
+  ["dragleave", "drop"].forEach(ev =>
+    box.addEventListener(ev, e => {
+      e.preventDefault();
+      box.style.borderColor = "#2b3246";
+    })
+  );
+
+  box.addEventListener("drop", async e => {
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    try {
+      const rows = await parseFile(f);
+      const ds = normalizeRows(rows);
+      detectDrivingEvents(ds);
+      detectFenceEvents(ds);
+      applyDataset(ds);
+      setPlaying(true);
+    } catch (err) {
+      console.error(err);
+      toast("Could not read file: " + err.message);
+    }
   });
 }
-enableDrop();
 
-/* wire: core buttons */
-q('#btnPick').addEventListener('click',()=>q('#fileData').click());
-q('#btnQuickDemo').addEventListener('click',()=>{const ds=normalizeRows(demoRows()); applyDataset(ds); setPlaying(true);});
-q('#btnUpload').addEventListener('click',()=>q('#fileData').click());
-q('#btnDemo').addEventListener('click',()=>q('#btnQuickDemo').click());
-q('#fileData').addEventListener('change',async e=>{const f=e.target.files?.[0]; if(!f) return; const rows=await parseFile(f); const ds=normalizeRows(rows); applyDataset(ds); setPlaying(true); e.target.value='';});
 
-q('#btnSummaryPanel').addEventListener('click',()=>{ const p=q('#summaryPanel'); p.style.display=p.style.display==='none'||!p.style.display?'block':'none'; });
-q('#btnCloseSummary').addEventListener('click',()=>{ q('#summaryPanel').style.display='none'; });
-q('#btnEventsPanel').addEventListener('click',()=>{ const p=q('#eventsPanel'); p.style.display=p.style.display==='none'||!p.style.display?'block':'none'; });
-q('#btnClosePanel').addEventListener('click',()=>{ q('#eventsPanel').style.display='none'; });
+/* ------------------------------------------------------------
+   6. UI wiring
+   ------------------------------------------------------------ */
+document.addEventListener("DOMContentLoaded", () => {
+  /* --- Dropzone --- */
+  enableDrop();
 
-['fCrash','fBrake','fAccel','fCorner','fEnter','fExit'].forEach(id=> q('#'+id).addEventListener('change',renderEventList));
-q('#btnExportEvents').addEventListener('click',exportEventsCSV);
+  /* --- File buttons --- */
+  const fileInput = q("#fileData");
 
-/* units & playback */
-q('#selUnits').addEventListener('change',(e)=>{ displayUnit=e.target.value; updateStats(dataset); renderEventList(); updateSummaryUI(); drawEvents(); });
-q('#btnPlay').addEventListener('click',()=>setPlaying(true));
-q('#btnPause').addEventListener('click',()=>setPlaying(false));
-q('#selRate').addEventListener('change',e=>{rate=Number(e.target.value)||1});
-q('#chkEvents').addEventListener('change',()=>drawEvents());
-q('#scrub').addEventListener('input',e=>{ if(!dataset) return; const f=Number(e.target.value)/1000; const t=dataset.t0+f*(dataset.t1-dataset.t0); playMs=t; const idx=findIndex(dataset.points,t); renderAt(idx,t); });
-window.addEventListener('keydown',e=>{ if(e.code==='Space'){ e.preventDefault(); if(q('#btnPlay').disabled) setPlaying(false); else setPlaying(true); }});
+  q("#btnPick").addEventListener("click", () => fileInput.click());
+  q("#btnUpload").addEventListener("click", () => fileInput.click());
 
-/* geofence menu logic */
-const menuBtn=q('#btnFenceMenu'), menu=q('#menuPop');
-menuBtn.addEventListener('click',()=>{
-  const open=menu.style.display==='block';
-  menu.style.display=open?'none':'block';
-  menuBtn.setAttribute('aria-expanded', String(!open));
-});
-document.addEventListener('click',(e)=>{ if(!menu.contains(e.target) && e.target!==menuBtn){ menu.style.display='none'; menuBtn.setAttribute('aria-expanded','false'); }});
-document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ menu.style.display='none'; menuBtn.setAttribute('aria-expanded','false'); }});
+  fileInput.addEventListener("change", async e => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
 
-/* geofence action routing */
-let editing=false, deleting=false;
-menu.addEventListener('click',(e)=>{
-  const btn=e.target.closest('.menu-item'); if(!btn) return;
-  const action=btn.dataset.action;
-  if(action==='draw'){ fenceDrawHandler.enable(); toast('Click to add vertices, double-click to finish'); }
-  if(action==='edit'){
-    if(!editing){ fenceEditHandler.enable(); btn.textContent='Save Edits'; editing=true; toast('Drag vertices then click Save Edits'); }
-    else { fenceEditHandler.disable(); btn.textContent='Edit / Save'; editing=false; }
-  }
-  if(action==='delete'){
-    if(!deleting){ fenceDeleteHandler.enable(); btn.textContent='Done Deleting'; deleting=true; toast('Click fence(s) to delete, then Done'); }
-    else { fenceDeleteHandler.disable(); btn.textContent='Delete / Done'; deleting=false; }
-  }
-  if(action==='auto'){
-    if(!dataset){ toast('Load data first'); return; }
-    const stops=extractStops(dataset.points,5,60);
-    if(!stops.length){ toast('No dwells ≥60s found.'); return; }
-    const pts=turf.featureCollection(stops.map(s=>turf.point([s.lon,s.lat])));
-    const clustered=turf.clustersDbscan(pts,0.1,{minPoints:3,units:'kilometers'});
-    const groups={}; for(const f of clustered.features){ const id=f.properties.cluster; if(id!=null){ (groups[id]??=[]).push(f); } }
-    let added=0;
-    Object.keys(groups).forEach(id=>{
-      const fc=turf.featureCollection(groups[id]);
-      let hull=turf.convex(fc);
-      if(!hull){ const center=turf.center(fc); hull=turf.buffer(center,0.05,{units:'kilometers'}); }
-      else { hull=turf.buffer(hull,0.015,{units:'kilometers'}); }
-      hull.properties={name:`Auto ${geofences.features.length+1}`};
-      geofences.features.push(hull); added++;
+    try {
+      const rows = await parseFile(f);
+      const ds = normalizeRows(rows);
+      detectDrivingEvents(ds);
+      detectFenceEvents(ds);
+      applyDataset(ds);
+      setPlaying(true);
+    } catch (err) {
+      console.error(err);
+      toast("Could not read file: " + err.message);
+    } finally {
+      e.target.value = "";
+    }
+  });
+
+  /* --- Demo buttons --- */
+  q("#btnQuickDemo").addEventListener("click", () => {
+    const ds = normalizeRows(demoRows());
+    detectDrivingEvents(ds);
+    detectFenceEvents(ds);
+    applyDataset(ds);
+    setPlaying(true);
+  });
+
+  q("#btnDemo").addEventListener("click", () => {
+    q("#btnQuickDemo").click();
+  });
+
+  /* --- Summary / Events panels --- */
+  q("#btnSummaryPanel").addEventListener("click", () => {
+    const p = q("#summaryPanel");
+    p.style.display =
+      p.style.display === "none" || !p.style.display ? "block" : "none";
+  });
+
+  q("#btnCloseSummary").addEventListener("click", () => {
+    q("#summaryPanel").style.display = "none";
+  });
+
+  q("#btnEventsPanel").addEventListener("click", () => {
+    const p = q("#eventsPanel");
+    p.style.display =
+      p.style.display === "none" || !p.style.display ? "block" : "none";
+  });
+
+  q("#btnClosePanel").addEventListener("click", () => {
+    q("#eventsPanel").style.display = "none";
+  });
+
+  /* --- Event filters --- */
+  ["fCrash", "fBrake", "fAccel", "fCorner", "fEnter", "fExit"].forEach(id => {
+    const el = q("#" + id);
+    if (!el) return;
+    el.addEventListener("change", () => {
+      if (typeof renderEventList === "function") renderEventList();
     });
-    if(added){ persistFences(); renderFences(); if(dataset){detectFenceEvents(dataset); buildEventIndex(); drawEvents(); updateSummaryUI();} toast(`Auto-created ${added} fence(s).`); }
-    else { toast('No clusters found.'); }
-  }
-  if(action==='import'){ q('#fileFence').click(); }
-  if(action==='export'){
-    const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(geofences,null,2)],{type:'application/geo+json'})); a.download='geofences.geojson'; a.click(); URL.revokeObjectURL(a.href);
-  }
-  menu.style.display='none'; menuBtn.setAttribute('aria-expanded','false');
-});
+  });
 
-/* import fences file */
-q('#fileFence').addEventListener('change',async e=>{
-  const f=e.target.files?.[0]; if(!f) return;
-  try{
-    const gj=JSON.parse(await f.text());
-    if(gj.type!=='FeatureCollection'){ toast('Invalid GeoJSON'); e.target.value=''; return; }
-    geofences=gj; persistFences(); renderFences();
-    if(dataset){detectFenceEvents(dataset); buildEventIndex(); drawEvents(); updateSummaryUI();}
-    toast(`Imported ${gj.features.length} feature(s).`);
-  }catch{ toast('Failed to read GeoJSON'); }
-  e.target.value='';
-});
+  /* --- Units & playback controls --- */
+  q("#selUnits").addEventListener("change", e => {
+    displayUnit = e.target.value;
+    if (typeof updateStats === "function") updateStats(dataset);
+    if (typeof renderEventList === "function") renderEventList();
+    if (typeof updateSummaryUI === "function") updateSummaryUI();
+    if (dataset) drawAll(dataset);
+  });
 
-/* stops helper */
-function extractStops(points,maxKph=5,minSec=60){
-  const out=[]; let i=0;
-  while(i<points.length){
-    while(i<points.length && (points[i].speedKph||0)>maxKph) i++;
-    if(i>=points.length) break;
-    let j=i,sumLat=0,sumLon=0,count=0,t0=points[i].t;
-    while(j<points.length && (points[j].speedKph||0)<=maxKph){ sumLat+=points[j].lat; sumLon+=points[j].lon; count++; j++; }
-    const t1=points[Math.max(i,j-1)].t, dur=(t1-t0)/1000;
-    if(dur>=minSec && count>0){ out.push({lat:sumLat/count,lon:sumLon/count,dur}); }
-    i=j+1;
+  q("#btnPlay").addEventListener("click", () => setPlaying(true));
+  q("#btnPause").addEventListener("click", () => setPlaying(false));
+
+  q("#selRate").addEventListener("change", e => {
+    rate = Number(e.target.value) || 1;
+  });
+
+  q("#chkEvents").addEventListener("change", () => {
+    if (dataset) drawAll(dataset);
+  });
+
+  q("#scrub").addEventListener("input", e => {
+    if (!dataset) return;
+    const f = Number(e.target.value) / 1000;
+    const t = dataset.t0 + f * (dataset.t1 - dataset.t0);
+    playMs = t;
+    const idx = findIndex(dataset.points, t);
+    renderAt(idx, t);
+  });
+
+  /* --- Keyboard shortcuts --- */
+  window.addEventListener("keydown", e => {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+
+    if (e.code === "Space") {
+      e.preventDefault();
+      if (!dataset) return;
+      setPlaying(!play);
+    } else if (e.code === "ArrowLeft" && dataset) {
+      e.preventDefault();
+      playMs = Math.max(dataset.t0, playMs - 1000);
+      const idx = findIndex(dataset.points, playMs);
+      renderAt(idx, playMs);
+    } else if (e.code === "ArrowRight" && dataset) {
+      e.preventDefault();
+      playMs = Math.min(dataset.t1, playMs + 1000);
+      const idx = findIndex(dataset.points, playMs);
+      renderAt(idx, playMs);
+    }
+  });
+
+  /* --- Export buttons --- */
+  const btnExportEvents = q("#btnExportEvents");
+  if (btnExportEvents && typeof exportEventsCSV === "function") {
+    btnExportEvents.addEventListener("click", exportEventsCSV);
   }
-  return out;
+
+  const btnExportSummary = q("#btnExportSummary");
+  if (btnExportSummary) {
+    btnExportSummary.addEventListener("click", () => {
+      const s = typeof computeSummaryAndRisk === "function"
+        ? computeSummaryAndRisk()
+        : null;
+
+      if (!s) {
+        toast("Nothing to export yet.");
+        return;
+      }
+
+      const header = [
+        "distance_km",
+        "duration_s",
+        "avg_kph",
+        "max_kph",
+        "max_acc_mps2",
+        "max_decel_mps2",
+        "max_acc_g",
+        "max_decel_g",
+        "crash",
+        "brake_harsh",
+        "accel_hard",
+        "corner_hard",
+        "risk_score"
+      ];
+
+      const line = [
+        s.distanceKm.toFixed(3),
+        s.durationSec.toFixed(0),
+        s.avgKph.toFixed(2),
+        s.maxKph.toFixed(2),
+        s.maxAcc.toFixed(3),
+        s.maxDecel.toFixed(3),
+        s.maxAccG.toFixed(3),
+        s.maxDecelG.toFixed(3),
+        s.counts.crash,
+        s.counts.brake_harsh,
+        s.counts.accel_hard,
+        s.counts.corner_hard,
+        s.risk.score.toFixed(1)
+      ];
+
+      const csv = [header.join(","), line.join(",")].join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(
+        new Blob([csv], { type: "text/csv;charset=utf-8;" })
+      );
+      a.download = "DLB_Summary.csv";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+  }
+});
+      /* ============================================================
+   BLOCK 7 — FINAL BOOTSTRAP, GLOBAL FIXES, AND SAFE INITIALISATION
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   1. Ensure globals exist
+   ------------------------------------------------------------ */
+
+window.dataset = window.dataset || null;
+window.map = window.map || null;
+
+/* ------------------------------------------------------------
+   2. Ensure drawAll() exists (fallback)
+   ------------------------------------------------------------ */
+if (typeof drawAll !== "function") {
+  window.drawAll = function(ds) {
+    if (!ds || !ds.points) return;
+
+    if (typeof drawRoute === "function") drawRoute(ds);
+    if (typeof drawEvents === "function") drawEvents();
+  };
 }
 
-/* summary + risk */
-function computeSummaryAndRisk(){
-  if(!dataset||!dataset.points||dataset.points.length<2) return null;
-  const pts=dataset.points;
-  const distanceKm=dataset.totalKm;
-  const durationSec=(dataset.t1-dataset.t0)/1000;
-  const avgKph=pts.reduce((s,p)=>s+(p.speedKph||0),0)/pts.length;
-  const maxKph=Math.max(...pts.map(p=>p.speedKph||0));
-  const maxAcc=Math.max(...pts.map(p=>isFinite(p.acc)?p.acc:-Infinity));
-  const maxDecel=Math.min(...pts.map(p=>isFinite(p.acc)?p.acc:Infinity));
-  const maxAccG=maxAcc/9.80665, maxDecelG=Math.abs(maxDecel)/9.80665;
+/* ------------------------------------------------------------
+   3. Prevent double map initialisation
+   ------------------------------------------------------------ */
+if (!window._dlbMapInit) window._dlbMapInit = false;
 
-  const counts={crash:0,brake_harsh:0,accel_hard:0,corner_hard:0};
-  pts.forEach(p=>(p.events||[]).forEach(e=>{if(e==='crash')counts.crash++; if(e==='brake_harsh')counts.brake_harsh++; if(e==='accel_hard')counts.accel_hard++; if(e==='corner_hard')counts.corner_hard++;}));
+function safeInitMap() {
+  if (window._dlbMapInit) return;
+  window._dlbMapInit = true;
 
-  const per10=Math.max(0.0001,distanceKm)/10;
-  const rate={brake_harsh:counts.brake_harsh/per10, accel_hard:counts.accel_hard/per10, corner_hard:counts.corner_hard/per10};
-
-  let score=0;
-  score+=Math.min(100,50*counts.crash);
-  score+=12*rate.brake_harsh;
-  score+=6*rate.accel_hard;
-  score+=8*rate.corner_hard;
-  score+=Math.max(0,(maxDecelG-0.5)*40);
-  score=Math.max(0,Math.min(100,score));
-
-  const band=score>=67?'HIGH':(score>=34?'MED':'LOW');
-  const color=score>=67?'var(--bad)':(score>=34?'var(--warn)':'var(--ok)');
-  return {distanceKm,durationSec,avgKph,maxKph,maxAcc,maxDecel,maxAccG,maxDecelG,counts,rate,risk:{score,band,color}};
-}
-function updateSummaryUI(){
-  const s=computeSummaryAndRisk(); summaryCache=s;
-  const sub=q('#sumSub'); if(!s){ if(sub) sub.textContent='Load data to analyze'; q('#riskBadge').style.display='none'; return; }
-  if(sub) sub.textContent='Risk = 50×crash + 12×brake/10km + 6×accel/10km + 8×corner/10km + max(0,(peakDecelG−0.5)×40).';
-  q('#sDist').textContent=`${s.distanceKm.toFixed(2)} km`;
-  q('#sDur').textContent=fmtHMS(s.durationSec*1000);
-  q('#sSpeed').textContent=`${kphToDisplay(s.avgKph).toFixed(0)}/${kphToDisplay(s.maxKph).toFixed(0)} ${displaySuffix()}`;
-  q('#sGs').textContent=`${s.maxAccG.toFixed(2)} / ${s.maxDecelG.toFixed(2)}`;
-  q('#cCrash').textContent=s.counts.crash; q('#cBrake').textContent=s.counts.brake_harsh; q('#cAccel').textContent=s.counts.accel_hard; q('#cCorner').textContent=s.counts.corner_hard;
-
-  const circumference=2*Math.PI*50; const filled=(s.risk.score/100)*circumference;
-  const gArc=q('#gArc'), gScore=q('#gScore'), gBand=q('#gBand');
-  if(gArc){ gArc.setAttribute('stroke-dasharray',`${filled} ${circumference-filled}`); gArc.setAttribute('stroke',s.risk.color); }
-  if(gScore) gScore.textContent=s.risk.score.toFixed(0);
-  if(gBand)  gBand.textContent=s.risk.band;
-
-  const rb=q('#riskBadge'); rb.style.display='flex'; q('#riskDot').style.background=s.risk.color; q('#riskText').textContent=`Risk: ${s.risk.band} (${s.risk.score.toFixed(0)})`;
-  q('#riskExplain').textContent=`Rates/10km — brake:${s.rate.brake_harsh.toFixed(2)}, accel:${s.rate.accel_hard.toFixed(2)}, corner:${s.rate.corner_hard.toFixed(2)}. PeakDecel ${s.maxDecelG.toFixed(2)} g.`;
+  try {
+    initMap();      // Your Block 1 map builder
+  } catch (e) {
+    console.error("Map failed initialisation:", e);
+  }
 }
 
-/* exports */
-q('#btnExportSummary').addEventListener('click',()=> {
-  if(!summaryCache){ toast('Nothing to export'); return; }
-  const s=summaryCache;
-  const header=['distance_km','duration_s','avg_kph','max_kph','max_acc_mps2','max_decel_mps2','max_acc_g','max_decel_g','crash','brake_harsh','accel_hard','corner_hard','risk_score'];
-  const line=[s.distanceKm.toFixed(3), s.durationSec.toFixed(0), s.avgKph.toFixed(2), s.maxKph.toFixed(2), s.maxAcc.toFixed(3), s.maxDecel.toFixed(3), s.maxAccG.toFixed(3), s.maxDecelG.toFixed(3), s.counts.crash, s.counts.brake_harsh, s.counts.accel_hard, s.counts.corner_hard, s.risk.score.toFixed(1)];
-  dl('summary.csv', [header.join(','), line.join(',')].join('\n'), 'text/csv');
+/* ------------------------------------------------------------
+   4. Boot once the DOM is ready & Leaflet is loaded
+   ------------------------------------------------------------ */
+
+function whenReady(fn) {
+  if (document.readyState === "complete" || document.readyState === "interactive")
+    return fn();
+  document.addEventListener("DOMContentLoaded", fn);
+}
+
+function whenLeafletReady(fn) {
+  if (window.L) return fn();
+  const chk = setInterval(() => {
+    if (window.L) {
+      clearInterval(chk);
+      fn();
+    }
+  }, 50);
+}
+
+whenReady(() =>
+  whenLeafletReady(() => {
+    safeInitMap();
+  })
+);
+
+/* ------------------------------------------------------------
+   5. Sanity guard — remove stray layers before use
+   ------------------------------------------------------------ */
+function cleanLayers() {
+  try {
+    if (!window.map) return;
+    if (window.routeLayer && !map.hasLayer(routeLayer)) routeLayer.addTo(map);
+    if (window.eventLayer && !map.hasLayer(eventLayer)) eventLayer.addTo(map);
+    if (window.drawnItems && !map.hasLayer(drawnItems)) drawnItems.addTo(map);
+  } catch (e) {
+    console.warn("Layer cleanup skipped:", e);
+  }
+}
+
+/* ------------------------------------------------------------
+   6. High-frequency watchdog preventing “map undefined”
+   ------------------------------------------------------------ */
+setTimeout(cleanLayers, 300);
+setTimeout(cleanLayers, 1500);
+setTimeout(cleanLayers, 3000);
+
+/* ------------------------------------------------------------
+   7. Auto-recover playback after UI reloads
+   ------------------------------------------------------------ */
+document.addEventListener("visibilitychange", () => {
+  if (!dataset || !map) return;
+
+  // Fix leaflet viewport breaks after Chrome tab restore
+  try {
+    map.invalidateSize();
+    if (trail) trail.redraw?.();
+  } catch (e) {}
+
+  // If tab was backgrounded while playing, resume smoothly
+  if (play) {
+    lastTs = 0;          // force synchronous tick restart
+    requestAnimationFrame(tick);
+  }
 });
-q('#btnExportEvents').addEventListener('click',exportEventsCSV);
-</script>
-</body>
-</html>
+
+/* ------------------------------------------------------------
+   8. Safe reflow when panels open/close
+   ------------------------------------------------------------ */
+["summaryPanel", "eventsPanel"].forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+
+  const observer = new MutationObserver(() => {
+    try {
+      if (map) map.invalidateSize();
+    } catch (e) {}
+  });
+
+  observer.observe(el, { attributes: true, attributeFilter: ["style"] });
+});
+      
+        
