@@ -1358,5 +1358,440 @@ document.addEventListener("visibilitychange", () => {
 
   observer.observe(el, { attributes: true, attributeFilter: ["style"] });
 });
-      
+    /* ============================================================
+   BLOCK 8 — DLB ADVANCED RISK ENGINE v1.0
+   ============================================================ */
+
+/*
+   This engine produces:
+
+   risk = {
+     total: Number(0–100),
+     behaviour: Number,
+     integrity: Number,
+     narrative: Number,
+     spatial: Number,
+     crash: Number,
+     explain: [ ...strings ]
+   }
+
+   It is designed for insurance investigations.
+*/
+
+
+/* ------------------------------------------------------------
+   1. Behaviour Score: braking, accel, cornering, repeated events
+   ------------------------------------------------------------ */
+function scoreBehaviour(ds) {
+  if (!ds || !ds.points) return { score: 0, notes: [] };
+
+  let brake = 0, accel = 0, corner = 0, crash = 0;
+  let notes = [];
+
+  ds.points.forEach(p => {
+    (p.events || []).forEach(ev => {
+      if (ev === "brake_harsh") brake++;
+      if (ev === "accel_hard") accel++;
+      if (ev === "corner_hard") corner++;
+      if (ev === "crash") crash++;
+    });
+  });
+
+  // Weighted points
+  let score =
+      brake * 2 +
+      accel * 1.5 +
+      corner * 1.75 +
+      crash * 25;     // crashes dominate risk
+
+  if (brake > 8) notes.push("Repeated harsh braking — unusual driving pattern");
+  if (accel > 8) notes.push("Frequent hard acceleration — possibly aggressive use");
+  if (corner > 6) notes.push("High number of hard corner events");
+  if (crash > 0) notes.push("Crash-level ΔV detected in telematics");
+
+  score = Math.min(40, score); // behaviour max 40 pts
+
+  return { score, notes };
+}
+
+
+/* ------------------------------------------------------------
+   2. Integrity Score (tampering / missing data / gaps / noise)
+   ------------------------------------------------------------ */
+function scoreIntegrity(ds) {
+  if (!ds || !ds.points) return { score: 0, notes: [] };
+
+  let notes = [];
+  let gaps = 0;
+  let majorGaps = 0;
+
+  for (let i = 1; i < ds.points.length; i++) {
+    const dt = (ds.points[i].t - ds.points[i-1].t) / 1000;
+
+    if (dt >= 10 && dt < 60) gaps++;
+    if (dt >= 60) majorGaps++;
+  }
+
+  let score = gaps * 1.5 + majorGaps * 6;
+  if (gaps > 0) notes.push(`Missing short segments: ${gaps} gaps`);
+  if (majorGaps > 0) notes.push(`Major missing time: ${majorGaps} long gaps (>60s)`);
+
+  score = Math.min(25, score);
+
+  return { score, notes };
+}
+
+
+/* ------------------------------------------------------------
+   3. Narrative Score (claim vs telematics mismatch)
+   ------------------------------------------------------------ */
+function scoreNarrativeMisalignment(ds, claim = null) {
+  /*
+     claim = {
+       expectedTime: unix timestamp,
+       expectedLat: number,
+       expectedLon: number
+     }
+  */
+
+  if (!ds || !ds.points || !claim) return { score: 0, notes: [] };
+
+  let notes = [];
+
+  // Find nearest telematics timestamp
+  let bestIdx = 0;
+  let bestDt = Infinity;
+
+  for (let i = 0; i < ds.points.length; i++) {
+    const dt = Math.abs(ds.points[i].t - claim.expectedTime);
+    if (dt < bestDt) {
+      bestDt = dt;
+      bestIdx = i;
+    }
+  }
+
+  const nearest = ds.points[bestIdx];
+
+  // Time deviation
+  const timeDiff = Math.abs(nearest.t - claim.expectedTime) / 1000;
+
+  // Distance deviation (Haversine)
+  const dist = kmBetween(
+    { lat: nearest.lat, lon: nearest.lon },
+    { lat: claim.expectedLat, lon: claim.expectedLon }
+  ) * 1000;
+
+  let score = 0;
+
+  if (timeDiff > 30) {
+    score += 10;
+    notes.push(`Claimed time differs by ${timeDiff.toFixed(0)} seconds`);
+  }
+  if (timeDiff > 120) {
+    score += 20;
+    notes.push("Large mismatch between claim time and telematics");
+  }
+
+  if (dist > 30) {
+    score += 15;
+    notes.push(`Location mismatch: ${dist.toFixed(1)} metres`);
+  }
+  if (dist > 100) {
+    score += 25;
+    notes.push("Telematics does not support claimed collision location");
+  }
+
+  score = Math.min(30, score);
+
+  return { score, notes };
+}
+
+
+/* ------------------------------------------------------------
+   4. Spatial Score (AOI, geofences, unusual behaviour)
+   ------------------------------------------------------------ */
+function scoreSpatial(ds, geofences, AOIs = []) {
+  if (!ds || !ds.points) return { score: 0, notes: [] };
+
+  let notes = [];
+  let enters = 0;
+  let exits = 0;
+  let visits = 0;
+
+  ds.points.forEach(p => {
+    (p.events || []).forEach(ev => {
+      if (ev.startsWith("enter:")) enters++;
+      if (ev.startsWith("exit:")) exits++;
+      if (ev.startsWith("stop:")) visits++;
+    });
+  });
+
+  let score = 0;
+
+  if (enters > 0) {
+    score += enters * 2;
+    notes.push(`${enters} entries into geofenced zones`);
+  }
+  if (visits > 0) {
+    score += visits * 4;
+    notes.push("Stops/dwells detected near AOIs or geofences");
+  }
+
+  score = Math.min(20, score);
+
+  return { score, notes };
+}
+
+
+/* ------------------------------------------------------------
+   5. Crash Plausibility (ΔV, pre-crash behaviour, unrealistic motion)
+   ------------------------------------------------------------ */
+function scoreCrashPlausibility(ds) {
+  if (!ds || !ds.points) return { score: 0, notes: [] };
+
+  let notes = [];
+  let hardBrakes = 0;
+  let crashes = 0;
+
+  ds.points.forEach(p => {
+    (p.events || []).forEach(ev => {
+      if (ev === "crash") crashes++;
+      if (ev === "brake_harsh") hardBrakes++;
+    });
+  });
+
+  let score = 0;
+
+  // Crash present but *no* harsh brake before it → suspicious
+  if (crashes > 0 && hardBrakes === 0) {
+    score += 15;
+    notes.push("Crash detected without pre-impact deceleration — unusual");
+  }
+
+  if (crashes > 1) {
+    score += 20;
+    notes.push("Multiple crash signatures — possible device artefact or manipulation");
+  }
+
+  score = Math.min(20, score);
+
+  return { score, notes };
+}
+
+
+/* ------------------------------------------------------------
+   6. MASTER RISK CALCULATION
+   ------------------------------------------------------------ */
+function computeDLBRisk(ds, claim = null, AOIs = []) {
+  if (!ds || !ds.points) return null;
+
+  const behaviour = scoreBehaviour(ds);
+  const integrity = scoreIntegrity(ds);
+  const narrative = scoreNarrativeMisalignment(ds, claim);
+  const spatial = scoreSpatial(ds, geofences, AOIs);
+  const crash = scoreCrashPlausibility(ds);
+
+  const total =
+    behaviour.score +
+    integrity.score +
+    narrative.score +
+    spatial.score +
+    crash.score;
+
+  return {
+    total: Math.min(100, total),
+    behaviour: behaviour.score,
+    integrity: integrity.score,
+    narrative: narrative.score,
+    spatial: spatial.score,
+    crash: crash.score,
+
+    explain: [
+      ...behaviour.notes,
+      ...integrity.notes,
+      ...narrative.notes,
+      ...spatial.notes,
+      ...crash.notes
+    ]
+  };
+}
+
+
+/* ------------------------------------------------------------
+   7. Auto-update UI badge after dataset load
+   ------------------------------------------------------------ */
+function updateDLBRiskUI(ds) {
+  const risk = computeDLBRisk(ds);
+  if (!risk) return;
+
+  const badge = q("#riskBadge");
+  const dot = q("#riskDot");
+  const txt = q("#riskText");
+
+  badge.style.display = "flex";
+
+  let colour = "var(--ok)";
+  if (risk.total >= 70) colour = "var(--bad)";
+  else if (risk.total >= 40) colour = "var(--warn)";
+
+  dot.style.background = colour;
+  txt.textContent = `Risk: ${risk.total.toFixed(0)}`;
+
+  // Optionally inject a detailed explanation somewhere later
+  console.log("DLB Risk Details:", risk);
+}
+     /* ============================================================
+   BLOCK 9 — Commercial Packaging & Public API
+   Versioning, hardening, and a clean external interface
+   ============================================================ */
+
+const DLB_PLAYER_VERSION = "1.0.0";
+
+/**
+ * Lightweight health check – can be called by host app.
+ */
+function dlbHealthCheck() {
+  return {
+    ok: !!(window.L && window.Papa && window.XLSX && window.turf),
+    leaflet: !!window.L,
+    papaparse: !!window.Papa,
+    xlsx: !!window.XLSX,
+    turf: !!window.turf,
+    version: DLB_PLAYER_VERSION
+  };
+}
+
+/* ------------------------------------------------------------
+   Global error logging hook (non-fatal, for future wiring)
+   ------------------------------------------------------------ */
+window.addEventListener("error", (ev) => {
+  try {
+    console.warn("[DLB Player] JS error caught:", ev.message, ev.filename, ev.lineno);
+  } catch (e) {
+    // swallow – never break the UI from logging
+  }
+});
+
+/* ------------------------------------------------------------
+   Public API surface for host systems
+   Exposed under window.DLBTelematicsPlayer
+   ------------------------------------------------------------ */
+
+(function initDLBPublicAPI() {
+  // Ensure we don’t overwrite if embedded twice
+  if (window.DLBTelematicsPlayer) return;
+
+  /**
+   * Internal helper: normalise + apply rows and start playback.
+   * Used by both file + direct-row loaders.
+   */
+  function _mountFromRows(rows, autoPlay = true) {
+    if (!rows || !rows.length) {
+      toast("No rows supplied to DLBTelematicsPlayer.mountFromRows");
+      return null;
+    }
+    const ds = normalizeRows(rows);
+    applyDataset(ds);
+    if (autoPlay) setPlaying(true);
+    return ds;
+  }
+
+  /**
+   * Internal helper: load from a File object (CSV/XLSX).
+   */
+  async function _mountFromFile(file, autoPlay = true) {
+    if (!file) {
+      toast("No file supplied to DLBTelematicsPlayer.mountFromFile");
+      return null;
+    }
+    const rows = await parseFile(file);
+    return _mountFromRows(rows, autoPlay);
+  }
+
+  /**
+   * Export summary CSV based on current summaryCache.
+   * (Mirrors your existing Export Summary button.)
+   */
+  function _exportSummaryCsv() {
+    if (!summaryCache) {
+      toast("Nothing to export");
+      return;
+    }
+    const s = summaryCache;
+    const header = [
+      "distance_km",
+      "duration_s",
+      "avg_kph",
+      "max_kph",
+      "max_acc_mps2",
+      "max_decel_mps2",
+      "max_acc_g",
+      "max_decel_g",
+      "crash",
+      "brake_harsh",
+      "accel_hard",
+      "corner_hard",
+      "risk_score"
+    ];
+    const line = [
+      s.distanceKm.toFixed(3),
+      s.durationSec.toFixed(0),
+      s.avgKph.toFixed(2),
+      s.maxKph.toFixed(2),
+      s.maxAcc.toFixed(3),
+      s.maxDecel.toFixed(3),
+      s.maxAccG.toFixed(3),
+      s.maxDecelG.toFixed(3),
+      s.counts.crash,
+      s.counts.brake_harsh,
+      s.counts.accel_hard,
+      s.counts.corner_hard,
+      s.risk.score.toFixed(1)
+    ];
+    dl("summary.csv", [header.join(","), line.join(",")].join("\n"), "text/csv");
+  }
+
+  /**
+   * Public object: attach everything we want to expose.
+   * This is what you "sell" / integrate with portals / claim tools.
+   */
+  window.DLBTelematicsPlayer = {
+    version: DLB_PLAYER_VERSION,
+
+    // Health / environment
+    health: dlbHealthCheck,
+
+    // Core mounting
+    mountFromFile: _mountFromFile,   // async (File, autoPlay=true) -> dataset
+    mountFromRows: _mountFromRows,   // (rows[], autoPlay=true) -> dataset
+
+    // Accessors
+    getDataset: () => dataset,
+    getSummary: () => summaryCache,
+    getRisk: () => (dataset ? computeDLBRisk(dataset) : null),
+
+    // Exports
+    exportSummaryCsv: _exportSummaryCsv,
+    exportEventsCsv: exportEventsCSV,
+
+    // Playback control (for host UIs if needed)
+    play: () => setPlaying(true),
+    pause: () => setPlaying(false),
+    seekFraction: (f) => {
+      if (!dataset || typeof f !== "number") return;
+      f = Math.max(0, Math.min(1, f));
+      const t = dataset.t0 + f * (dataset.t1 - dataset.t0);
+      playMs = t;
+      const idx = findIndex(dataset.points, t);
+      renderAt(idx, t);
+      q("#scrub").value = String(Math.round(f * 1000));
+    }
+  };
+
+  console.log(
+    `%cDLB Telematics Player v${DLB_PLAYER_VERSION} ready`,
+    "color:#1fb6ff;font-weight:bold;"
+  );
+})();
+     
         
